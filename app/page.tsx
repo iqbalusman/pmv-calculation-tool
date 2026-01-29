@@ -1,13 +1,52 @@
 'use client'
 
-import React from "react"
-
-import { useState } from 'react'
+import React, { useState } from "react"
+import dynamic from 'next/dynamic'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot } from 'recharts'
+
+// Dynamic import untuk Recharts (penting untuk SSR di Vercel)
+const ResponsiveContainer = dynamic(
+  () => import('recharts').then((mod) => mod.ResponsiveContainer as any),
+  { ssr: false }
+) as any
+
+const LineChart = dynamic(
+  () => import('recharts').then((mod) => mod.LineChart as any),
+  { ssr: false }
+) as any
+
+const Line = dynamic(
+  () => import('recharts').then((mod) => mod.Line as any),
+  { ssr: false }
+) as any
+
+const XAxis = dynamic(
+  () => import('recharts').then((mod) => mod.XAxis as any),
+  { ssr: false }
+) as any
+
+const YAxis = dynamic(
+  () => import('recharts').then((mod) => mod.YAxis as any),
+  { ssr: false }
+) as any
+
+const CartesianGrid = dynamic(
+  () => import('recharts').then((mod) => mod.CartesianGrid as any),
+  { ssr: false }
+) as any
+
+const Tooltip = dynamic(
+  () => import('recharts').then((mod) => mod.Tooltip as any),
+  { ssr: false }
+) as any
+
+const ReferenceDot = dynamic(
+  () => import('recharts').then((mod) => mod.ReferenceDot as any),
+  { ssr: false }
+) as any
 
 export default function ThermalComfortCalculator() {
   // Default contoh dari dokumen
