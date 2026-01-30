@@ -581,7 +581,7 @@ export default function ThermalComfortCalculator() {
               <div className="leading-tight">
                 <p className="text-xs text-slate-500">Telepon / WhatsApp</p>
                 <a
-                  href="https://wa.me/082226192277"
+                  href="https://wa.me/+6282226192277"
                  target="_blank"
                  rel="noreferrer"
                  className="text-sm font-semibold text-slate-900 hover:text-blue-700"
