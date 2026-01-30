@@ -566,44 +566,13 @@ export default function ThermalComfortCalculator() {
       </div>
 
       {/* Contact */}
-      <div className="w-full md:w-[320px]">
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
-          <p className="text-sm font-semibold text-slate-900 mb-3">
-            Kontak
-          </p>
-
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl bg-slate-100 flex items-center justify-center">
-                <Phone className="h-4 w-4 text-slate-600" />
-              </div>
-
-              <div className="leading-tight">
-                <p className="text-xs text-slate-500">Telepon / WhatsApp</p>
-                <a
-                  href="https://wa.me/+6282226192277"
-                 target="_blank"
-                 rel="noreferrer"
-                 className="text-sm font-semibold text-slate-900 hover:text-blue-700"
-                  >
-                 +62 822 2619 2277
-                 </a>
-
-              </div>
-            </div>
-
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-              Active
-            </span>
-          </div>
-        </div>
-      </div>
+      
     </div>
 
     {/* Bottom */}
     <div className="mt-8 border-t border-slate-200 pt-5 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
       <p className="text-xs text-slate-500">
-        © {new Date().getFullYear()} Thermal Comfort Calculator. Ibalusman
+        © {new Date().getFullYear()} Thermal Comfort Calculator. Iblusman
       </p>
     </div>
   </div>
