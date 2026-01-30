@@ -586,7 +586,7 @@ export default function ThermalComfortCalculator() {
                  rel="noreferrer"
                  className="text-sm font-semibold text-slate-900 hover:text-blue-700"
                   >
-                 +62 822-2619-2277
+                 0822-2619-2277
                  </a>
 
               </div>
