@@ -630,7 +630,7 @@ export default function ThermalComfortCalculator() {
                           type="monotone"
                           dataKey="cumulative"
                           name="Akumulasi"
-                          strokeWidth={3}
+                          strokeWidth={1}
                           dot
                           isAnimationActive={false}
                         />
