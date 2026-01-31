@@ -683,29 +683,7 @@ export default function ThermalComfortCalculator() {
                 </p>
               </div>
 
-              <div className="w-full md:w-[320px]">
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
-                  <p className="text-sm font-semibold text-slate-900 mb-3">Kontak</p>
-
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-xl bg-slate-100 flex items-center justify-center">
-                      <Phone className="h-4 w-4 text-slate-600" />
-                    </div>
-
-                    <div className="leading-tight">
-                      <p className="text-xs text-slate-500">WhatsApp</p>
-                      <a
-                        href="https://wa.me/6281234567890"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-semibold text-slate-900 hover:text-blue-700"
-                      >
-                        +62 812-3456-7890
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              
             </div>
 
             <div className="mt-8 border-t border-slate-200 pt-5">
