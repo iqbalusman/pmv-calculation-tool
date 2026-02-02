@@ -625,7 +625,7 @@ export default function ThermalComfortCalculator() {
                       variant="outline"
                       className="w-full bg-transparent"
                     >
-                      Download Grafik (PNG)
+                      Download Grafik 
                     </Button>
                   </div>
 
