@@ -560,9 +560,7 @@ export default function ThermalComfortCalculator() {
                 <Button onClick={handleCalculate} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
                   Hitung
                 </Button>
-                <Button onClick={handleReset} variant="outline" className="flex-1 bg-transparent">
-                  Reset ke Contoh
-                </Button>
+                
               </div>
 
               <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
