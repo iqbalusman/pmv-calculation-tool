@@ -432,8 +432,14 @@ export default function ThermalComfortCalculator() {
             <CardContent className="pt-6 space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="pmv_iso" className="text-sm font-medium text-slate-700">
-                  PMV<sub>iso</sub>
+                  <span className="inline-flex items-baseline gap-0">
+                    <span>PMV</span>
+                    <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
+                      iso
+                    </sub>
+                  </span>
                 </Label>
+
                 <Input
                   id="pmv_iso"
                   type="number"
@@ -443,6 +449,7 @@ export default function ThermalComfortCalculator() {
                   placeholder="0.60"
                 />
               </div>
+
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -504,48 +511,61 @@ export default function ThermalComfortCalculator() {
 
               {/* tambahan rumus */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="u_site" className="text-sm font-medium text-slate-700">
-                      u<sub>site</sub>
-                    </Label>
-                    <Input
-                      id="u_site"
-                      type="number"
-                      step="0.01"
-                      value={inputs.u_site}
-                      onChange={(e) => handleInputChange('u_site', e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="u_jam" className="text-sm font-medium text-slate-700">
-                      u<sub>jam</sub>
-                    </Label>
-                    <Input
-                      id="u_jam"
-                      type="number"
-                      step="0.01"
-                      value={inputs.u_jam}
-                      onChange={(e) => handleInputChange('u_jam', e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="epsilon" className="text-sm font-medium text-slate-700">
-                      ε
-                    </Label>
-                    <Input
-                      id="epsilon"
-                      type="number"
-                      step="0.01"
-                      value={inputs.epsilon}
-                      onChange={(e) => handleInputChange('epsilon', e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="u_site" className="text-sm font-medium text-slate-700">
+                    <span className="inline-flex items-baseline gap-0">
+                      <span>u</span>
+                      <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
+                        site
+                      </sub>
+                    </span>
+                  </Label>
+                  <Input
+                    id="u_site"
+                    type="number"
+                    step="0.01"
+                    value={inputs.u_site}
+                    onChange={(e) => handleInputChange('u_site', e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="u_jam" className="text-sm font-medium text-slate-700">
+                    <span className="inline-flex items-baseline gap-0">
+                      <span>u</span>
+                      <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
+                        jam
+                      </sub>
+                    </span>
+                  </Label>
+                  <Input
+                    id="u_jam"
+                    type="number"
+                    step="0.01"
+                    value={inputs.u_jam}
+                    onChange={(e) => handleInputChange('u_jam', e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="epsilon" className="text-sm font-medium text-slate-700">
+                    ε
+                  </Label>
+                  <Input
+                    id="epsilon"
+                    type="number"
+                    step="0.01"
+                    value={inputs.epsilon}
+                    onChange={(e) => handleInputChange('epsilon', e.target.value)}
+                    placeholder="0"
+                  />
                 </div>
               </div>
+            </div>
+
 
               {errors && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
