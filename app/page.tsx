@@ -496,8 +496,19 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-2">
                   <Label htmlFor="veg_func" className="text-sm font-medium text-slate-700">
-                    <span className="italic">veg<sub>func</sub></span>
+                    <span className="inline-flex items-baseline gap-0">
+                      <span>Vegetasi Function </span>
+                      <span>{'('}</span>
+                      <span className="italic">
+                        veg
+                        <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
+                          func
+                        </sub>
+                      </span>
+                      <span>{')'}</span>
+                    </span>
                   </Label>
+
                   <Input
                     id="veg_func"
                     type="number"
@@ -507,6 +518,8 @@ export default function ThermalComfortCalculator() {
                     placeholder="1"
                   />
                 </div>
+
+
               </div>
 
               {/* tambahan rumus */}
