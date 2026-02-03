@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label'
 
 type Inputs = {
   pmv_iso: number | ''
-  v: number | '' // tetap v untuk perhitungan (wind speed), tapi label UI jadi α (alfa)
+  v: number | '' // tetap v untuk perhitungan, tapi label UI jadi α (alfa)
   svf: number | ''
   h_w: number | ''
   veg_func: number | ''
@@ -38,6 +38,19 @@ type AshraeResult = {
 }
 
 export default function ThermalComfortCalculator() {
+  // ✅ Mulai dari nol saat refresh
+  const ZERO_VALUES: Inputs = {
+    pmv_iso: 0,
+    v: 0,
+    svf: 0,
+    h_w: 0,
+    veg_func: 0,
+    u_site: 0,
+    u_jam: 0,
+    epsilon: 0,
+  }
+
+  // Nilai default (untuk tombol "Muat Nilai Default")
   const DEFAULT_VALUES: Inputs = {
     pmv_iso: 0.60,
     v: 3.2,
@@ -59,7 +72,7 @@ export default function ThermalComfortCalculator() {
     alphaV: 0.5,
   }
 
-  const [inputs, setInputs] = useState<Inputs>(DEFAULT_VALUES)
+  const [inputs, setInputs] = useState<Inputs>(ZERO_VALUES)
   const [results, setResults] = useState<any>(null)
   const [errors, setErrors] = useState<string>('')
 
@@ -90,16 +103,9 @@ export default function ThermalComfortCalculator() {
       throw new Error('Semua input harus berupa angka')
     }
 
-    // A = H/W + αv·v
     const A = h_w + PARAMS.alphaV * v
-
-    // exponent = -k·A
     const exponent = -PARAMS.k * A
-
-    // exp_factor = e^(exponent)
     const exp_raw = Math.exp(exponent)
-
-    // SVFv = SVF·v
     const SVFv = svf * v
 
     const termAlpha = round3(PARAMS.alpha)
@@ -163,6 +169,7 @@ export default function ThermalComfortCalculator() {
     }
   }
 
+  // Tombol "Muat Nilai Default"
   const handleReset = () => {
     setInputs(DEFAULT_VALUES)
     try {
@@ -191,7 +198,6 @@ export default function ThermalComfortCalculator() {
     }))
   }
 
-  // ASHRAE 55 (rentang)
   const getAshrae55Category = (pmv: number): AshraeResult => {
     if (pmv < -2.5) return { label: "Sangat Dingin", range: "< -2.5" }
     if (pmv < -1.5) return { label: "Dingin", range: "[-2.5, -1.5)" }
@@ -207,7 +213,6 @@ export default function ThermalComfortCalculator() {
     return getAshrae55Category(Number(results.total))
   }, [results])
 
-  // Chart breakdown komponen & akumulasi
   const breakdownData = useMemo(() => {
     if (!results) return []
     const terms = [
@@ -236,7 +241,6 @@ export default function ThermalComfortCalculator() {
     return data
   }, [results])
 
-  // ✅ Download grafik (PNG) - FIX html2canvas "lab()"
   const handleDownloadChartPNG = async () => {
     if (!chartRef.current) return
     const date = new Date().toISOString().slice(0, 10)
@@ -277,7 +281,6 @@ export default function ThermalComfortCalculator() {
       a.download = `Grafik-PMVabran-${date}.png`
       a.click()
     } catch {
-      // Fallback: export SVG chart -> PNG
       const svg = chartRef.current.querySelector("svg")
       if (!svg) return
 
@@ -314,8 +317,8 @@ export default function ThermalComfortCalculator() {
     }
   }
 
-  // ✅ Download PDF (fix: tampilkan alfa input + hilangkan wind speed + hilangkan ±)
-  const handleDownloadPDF = () => {
+  // ✅ PDF: rumus image + fix error "lab()"
+  const handleDownloadPDF = async () => {
     if (!results) return
 
     const doc = new jsPDF({ unit: "pt", format: "a4" })
@@ -341,13 +344,12 @@ export default function ThermalComfortCalculator() {
       y += 14
     }
 
-    // ✅ normalisasi karakter yang sering rusak di jsPDF (jadi ± dll)
     const cleanPdfText = (s: string) =>
       s
-        .replace(/\u2212/g, "-") // minus matematika → "-"
-        .replace(/\u00B1/g, "+/-") // ± → +/-
-        .replace(/\u00D7/g, "x") // × → x
-        .replace(/\u00B7/g, "*") // · → *
+        .replace(/\u2212/g, "-")
+        .replace(/\u00B1/g, "+/-")
+        .replace(/\u00D7/g, "x")
+        .replace(/\u00B7/g, "*")
         .replace(/[α]/g, "alpha")
         .replace(/[β]/g, "beta")
         .replace(/[ε]/g, "epsilon")
@@ -381,6 +383,105 @@ export default function ThermalComfortCalculator() {
       y += lineGap
     }
 
+    // ✅ rumus persis gambar + isolasi dari CSS "lab()"
+    const addPMVabranFormulaImage = async () => {
+      const wrap = document.createElement("div")
+      wrap.id = "pmv-formula-export"
+      ;(wrap.style as any).all = "initial"
+
+      wrap.style.position = "fixed"
+      wrap.style.left = "-10000px"
+      wrap.style.top = "0"
+      wrap.style.backgroundColor = "#ffffff"
+      wrap.style.padding = "0"
+      wrap.style.margin = "0"
+      wrap.style.display = "inline-block"
+
+      wrap.innerHTML = `
+        <div style="
+          all: initial;
+          font-family: 'Times New Roman', Times, serif;
+          font-size: 22px;
+          color: #111827;
+          line-height: 1.35;
+          display: inline-block;
+          background: #ffffff;
+        ">
+          <div style="
+            display: inline-block;
+            background: #f3f4f6;
+            border-radius: 10px;
+            padding: 10px 14px;
+            white-space: nowrap;
+          ">
+            <span style="font-style: italic;">PMV</span><sub style="font-style: italic;">abran</sub>
+            &nbsp;=&nbsp;α
+            &nbsp;+&nbsp;β<sub>1</sub>
+            &nbsp;<span style="font-style: italic;">PMV</span><sub style="font-style: italic;">iso</sub>
+            (<span style="font-style: italic;">Ta</span>,&nbsp;<span style="font-style: italic;">RH</span>,&nbsp;<span style="font-style: italic;">v</span>,&nbsp;<span style="font-style: italic;">MRT</span>)
+            &nbsp;+&nbsp;β<sub>2</sub>
+            &nbsp;e<sup>−k( <span style="font-style: italic;">H</span>/<span style="font-style: italic;">W</span> + α<sub style="font-style: italic;">v</sub> <span style="font-style: italic;">v</span> )</sup>
+            &nbsp;+&nbsp;β<sub>3</sub>
+            &nbsp;(<span style="font-style: italic;">SVF</span>&nbsp;·&nbsp;<span style="font-style: italic;">v</span>)
+            &nbsp;+&nbsp;β<sub>4</sub>
+            &nbsp;<span style="font-style: italic;">veg</span><sub style="font-style: italic;">func</sub>
+          </div>
+
+          <div style="
+            margin-top: 10px;
+            margin-left: 120px;
+            white-space: nowrap;
+          ">
+            +&nbsp;<span style="font-style: italic;">u</span><sub style="font-style: italic;">site</sub>
+            &nbsp;+&nbsp;<span style="font-style: italic;">u</span><sub style="font-style: italic;">jam</sub>
+            &nbsp;+&nbsp;ε
+          </div>
+        </div>
+      `
+
+      document.body.appendChild(wrap)
+
+      try {
+        const canvas = await html2canvas(wrap, {
+          backgroundColor: "#ffffff",
+          scale: 3,
+          useCORS: true,
+          onclone: (clonedDoc) => {
+            clonedDoc.documentElement.style.backgroundColor = "#ffffff"
+            clonedDoc.body.style.backgroundColor = "#ffffff"
+            clonedDoc.body.style.color = "#111827"
+
+            const root = clonedDoc.getElementById("pmv-formula-export") as HTMLElement | null
+            if (!root) return
+
+            root.querySelectorAll<HTMLElement>("*").forEach((el) => {
+              el.style.setProperty("color", "#111827", "important")
+              el.style.setProperty("background-color", "transparent", "important")
+              el.style.setProperty("border-color", "#e5e7eb", "important")
+              el.style.setProperty("outline-color", "#e5e7eb", "important")
+              el.style.setProperty("caret-color", "#111827", "important")
+              el.style.setProperty("text-decoration-color", "#111827", "important")
+              el.style.setProperty("filter", "none", "important")
+              ;(el.style as any).backdropFilter = "none"
+            })
+          },
+        })
+
+        const imgData = canvas.toDataURL("image/png")
+        const props = doc.getImageProperties(imgData)
+        const imgW = maxW
+        const imgH = (props.height * imgW) / props.width
+
+        ensureSpace(imgH + 12)
+        doc.addImage(imgData, "PNG", marginX, y, imgW, imgH)
+        y += imgH + 12
+      } catch {
+        write("PMVabran formula gagal dirender (CSS color lab()).", { size: 10 })
+      } finally {
+        document.body.removeChild(wrap)
+      }
+    }
+
     const now = new Date()
     const dateStr = now.toLocaleString()
 
@@ -396,21 +497,19 @@ export default function ThermalComfortCalculator() {
     doc.text(`Tanggal/Jam: ${dateStr}`, marginX, y); y += 12
     hr()
 
-    // ✅ tulis rumus dengan aman (tanpa karakter yang bikin ±)
     write("1) A = (H/W) + alphaV * v")
     write("2) exponent = -k * A")
     write("3) expfactor = exp(exponent) = e^(exponent)")
     write("4) SVFv = SVF * v")
-    write("5) PMVabran = alpha + beta1*PMV_iso + beta2*expfactor + beta3*SVFv + beta4*vegfunc + u_site + u_jam + epsilon")
+
+    write("5) PMVabran", { bold: true })
+    await addPMVabranFormulaImage()
     hr()
 
     write("INPUT", { bold: true, size: 12 })
     hr()
     writeKV("PMV_iso", String(inputs.pmv_iso))
-
-    // ✅ ini yang kamu minta: bukan wind speed, tapi alfa (input)
     writeKV("alfa (input)", String(inputs.v))
-
     writeKV("SVF", String(inputs.svf))
     writeKV("H/W", String(inputs.h_w))
     writeKV("veg_func", String(inputs.veg_func))
@@ -482,8 +581,11 @@ export default function ThermalComfortCalculator() {
     doc.save(`Hasil-Analisis-PMVabran-${date}.pdf`)
   }
 
+  // ✅ Refresh: mulai dari nol (tidak auto-load default)
   useEffect(() => {
-    handleReset()
+    setInputs(ZERO_VALUES)
+    setResults(null)
+    setErrors('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -531,7 +633,7 @@ export default function ThermalComfortCalculator() {
                 />
               </div>
 
-              {/* label hanya α, tapi nilai masuk ke v */}
+              {/* α input */}
               <div className="space-y-2">
                 <Label htmlFor="v" className="text-sm font-medium text-slate-700">
                   α (alfa)
@@ -602,7 +704,7 @@ export default function ThermalComfortCalculator() {
                 </div>
               </div>
 
-              {/* tambahan rumus */}
+              {/* tambahan */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-2">
@@ -671,7 +773,7 @@ export default function ThermalComfortCalculator() {
                 </Button>
               </div>
 
-              {/* ✅ Parameter Formula: rapih, "=" sejajar */}
+              {/* Parameter Formula */}
               <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <p className="text-xs font-semibold text-slate-700 mb-3">Parameter Formula</p>
 
@@ -686,10 +788,7 @@ export default function ThermalComfortCalculator() {
                     { no: "7.", left: <><span className="italic">U</span><sub className="italic">jam</sub></>, right: inputs.u_jam },
                     { no: "8.", left: <>ε</>, right: inputs.epsilon },
                   ].map((row, idx) => (
-                    <div
-                      key={idx}
-                      className="grid grid-cols-[210px_22px_90px] items-center"
-                    >
+                    <div key={idx} className="grid grid-cols-[210px_22px_90px] items-center">
                       <span className="font-medium">
                         {row.no}&nbsp;&nbsp;{row.left}
                       </span>
@@ -746,7 +845,6 @@ export default function ThermalComfortCalculator() {
                       Download Grafik
                     </Button>
                   </div>
-
                   <div className="space-y-4">
                     <div>
                       <p className="text-sm font-semibold text-slate-700 mb-3">
@@ -852,7 +950,6 @@ export default function ThermalComfortCalculator() {
               </CardHeader>
 
               <CardContent className="pt-6">
-                {/* ✅ id penting untuk onclone */}
                 <div
                   id="chart-export"
                   className="rounded-lg border border-slate-200 bg-white p-4"
@@ -907,48 +1004,6 @@ export default function ThermalComfortCalculator() {
             </Card>
           </div>
         )}
-
-        {/* Footer */}
-        <footer className="mt-10 border-t border-slate-200 bg-white/70 backdrop-blur">
-          <div className="max-w-7xl mx-auto px-6 py-10">
-            <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
-              <div className="max-w-2xl">
-                <div className="flex items-center gap-4">
-                  <div className="h-11 w-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-sm ring-4 ring-blue-100">
-                    <span className="text-sm font-bold">TC</span>
-                  </div>
-
-                  <div className="leading-tight">
-                    <p className="text-base font-semibold text-slate-900">
-                      Thermal Comfort Environment
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      PMVabran • Adaptive Thermal Comfort
-                    </p>
-                  </div>
-                </div>
-
-                <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-                  Aplikasi untuk menghitung PMVabran berdasarkan parameter lingkungan
-                  permukiman pesisir, menampilkan hasil, komponen perhitungan, dan visualisasi grafik.
-                </p>
-
-                <p className="mt-4 text-sm text-slate-600 leading-relaxed border-l-4 border-blue-200 pl-4 italic">
-                  Model PMVabran merupakan model prediktif kenyamanan termal ruang luar pesisir yang
-                  mengintegrasikan respon fisiologis manusia dengan koreksi spasial berbasis morfologi
-                  dan dinamika angin laut, sehingga lebih representatif untuk menjelaskan dan merancang
-                  kenyamanan termal pada permukiman pesisir tropis.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-8 border-t border-slate-200 pt-5">
-              <p className="text-xs text-slate-500">
-                © {new Date().getFullYear()} Thermal Comfort Calculator. Iblusman
-              </p>
-            </div>
-          </div>
-        </footer>
       </div>
     </main>
   )
