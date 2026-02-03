@@ -482,7 +482,7 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-2">
                   <Label htmlFor="h_w" className="text-sm font-medium text-slate-700">
-                    H/W
+                    Rasio H/W
                   </Label>
                   <Input
                     id="h_w"
@@ -604,13 +604,15 @@ export default function ThermalComfortCalculator() {
 
                 <CardContent className="pt-6">
                   <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
-                    <p className="text-xs text-blue-600 uppercase tracking-wide font-semibold mb-2">
-                      PMVabran
+                    <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
+                      PMV<span className="lowercase">abran</span>
                     </p>
+
                     <p className="text-5xl font-bold text-blue-700">
                       {Number(results.total).toFixed(3)}
                     </p>
                   </div>
+
 
                   {/* Perbandingan ASHRAE 55 (singkat) */}
                   {ashrae && (
@@ -710,13 +712,15 @@ export default function ThermalComfortCalculator() {
                     </div>
 
                     <div className="mt-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide mb-2">
-                        Total PMVabran
+                      <p className="text-xs text-blue-600 font-semibold tracking-wide mb-2">
+                        TOTAL PMV<span className="lowercase">abran</span>
                       </p>
+
                       <p className="text-3xl font-bold text-blue-700">
                         {Number(results.total).toFixed(3)}
                       </p>
                     </div>
+
                   </div>
                 </CardContent>
               </Card>
