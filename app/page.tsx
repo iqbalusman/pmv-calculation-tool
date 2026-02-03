@@ -504,9 +504,6 @@ export default function ThermalComfortCalculator() {
 
               {/* tambahan rumus */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <p className="text-sm font-semibold text-slate-800 mb-3">
-                  Tambahan (sesuai rumus)
-                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="u_site" className="text-sm font-medium text-slate-700">
