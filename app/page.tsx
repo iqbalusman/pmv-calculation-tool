@@ -881,64 +881,74 @@ export default function ThermalComfortCalculator() {
 
         {/* Distribusi PMV */}
         {results && (
-          <div className="mt-6">
-            <Card>
-              <CardHeader className="border-b bg-white">
-                <CardTitle className="text-lg">Distribusi PMV</CardTitle>
-                <CardDescription>
-                  Grafik kontribusi tiap komponen terhadap total PMVabran (termasuk offset normalisasi jika aktif).
-                </CardDescription>
-              </CardHeader>
+  <div className="mt-6">
+    <Card>
+      <CardHeader className="border-b bg-white">
+        <CardTitle className="text-lg">Distribusi PMV</CardTitle>
+        <CardDescription>
+          Grafik kontribusi tiap komponen terhadap total PMVabran (termasuk offset normalisasi jika aktif).
+        </CardDescription>
+      </CardHeader>
 
-              <CardContent className="pt-6">
-                <div
-                  id="chart-export"
-                  className="rounded-lg border border-slate-200 bg-white p-4"
-                  ref={chartRef}
-                >
-                  <p className="text-sm font-semibold text-slate-800 mb-3">
-                    Breakdown Komponen & Akumulasi
-                  </p>
+      <CardContent className="pt-6">
+        <div
+          id="chart-export"
+          className="rounded-lg border border-slate-200 bg-white p-4"
+          ref={chartRef}
+        >
+          <p className="text-sm font-semibold text-slate-800 mb-3">
+            Breakdown Komponen & Akumulasi
+          </p>
 
-                  <div className="h-[380px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={breakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
+          <div className="h-[380px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={breakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
 
-                        <Bar dataKey="component" name="Nilai Komponen" />
+                {/* ✅ Hijau: Nilai Komponen */}
+                <Bar dataKey="component" name="Nilai Komponen" fill="#16a34a" />
 
-                        <Line
-                          type="monotone"
-                          dataKey="cumulative"
-                          name="Akumulasi"
-                          strokeWidth={2}
-                          dot
-                          isAnimationActive={false}
-                        />
+                {/* ✅ Biru: Akumulasi */}
+                <Line
+                  type="monotone"
+                  dataKey="cumulative"
+                  name="Akumulasi"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  dot
+                  isAnimationActive={false}
+                />
 
-                        <ReferenceDot
-                          x="Total"
-                          y={Number(results.total)}
-                          r={7}
-                          strokeWidth={2}
-                          label={{ value: `Total: ${Number(results.total).toFixed(3)}`, position: 'top' }}
-                        />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <p className="text-xs text-slate-500 mt-3">
-                    Batang = kontribusi tiap komponen, garis = akumulasi sampai total PMVabran.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+                {/* ✅ Merah: Total */}
+                <ReferenceDot
+                  x="Total"
+                  y={Number(results.total)}
+                  r={7}
+                  fill="#dc2626"
+                  stroke="#dc2626"
+                  strokeWidth={2}
+                  label={{
+                    value: `Total: ${Number(results.total).toFixed(3)}`,
+                    position: 'top',
+                    fill: '#dc2626',
+                  }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
-        )}
+
+          <p className="text-xs text-slate-500 mt-3">
+            Batang = kontribusi tiap komponen, garis = akumulasi sampai total PMVabran.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+)}
 
         {/* Footer */}
         <footer className="mt-10 border-t border-slate-200 bg-white/70 backdrop-blur">
