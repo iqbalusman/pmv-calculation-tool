@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import jsPDF from "jspdf"
-import html2canvas from "html2canvas"
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -36,7 +35,7 @@ type Inputs = {
   pmv_obs_ref: number | ''
 }
 
-type AshraeResult = {
+type CategoryResult = {
   label: string
   range: string
 }
@@ -63,35 +62,7 @@ type PMVAbranResult = {
 }
 
 export default function ThermalComfortCalculator() {
-  // ✅ Nilai contoh (kalau klik "Muat Nilai Default")
-  const DEFAULT_VALUES: Inputs = {
-    pmv_iso: 0.60,
-    v: 3.2,
-    svf: 0.55,
-    h_w: 0.923,
-    veg_func: 1,
-    u_site: 0,
-    u_jam: 0,
-    epsilon: 0,
-    normalize: false,
-    pmv_obs_ref: -0.61,
-  }
-
-  // ✅ Nilai awal saat refresh (SEMUA 0 seperti gambar)
-  const INITIAL_VALUES: Inputs = {
-    pmv_iso: 0,
-    v: 0,
-    svf: 0,
-    h_w: 0,
-    veg_func: 0,
-    u_site: 0,
-    u_jam: 0,
-    epsilon: 0,
-    normalize: false,
-    pmv_obs_ref: 0, // kalau mau tetap -0.61, ubah jadi -0.61
-  }
-
-  // Koefisien model Bab 4
+  // Koefisien model Bab 4 (sesuai gambar)
   const PARAMS = {
     alpha: 0.225,
     beta1: 0.774,
@@ -102,6 +73,52 @@ export default function ThermalComfortCalculator() {
     alphaV: 0.5,
   }
 
+  // ✅ Nilai contoh (kalau klik "Muat Nilai Default")
+  // >>> DISAMAKAN: target persepsi = -1.66 dan normalisasi aktif
+  const DEFAULT_VALUES: Inputs = {
+    pmv_iso: 0.60,
+    v: 3.2,
+    svf: 0.55,
+    h_w: 0.923,
+    veg_func: 1,
+    u_site: 0,
+    u_jam: 0,
+    epsilon: 0,
+    normalize: true,     // ✅ ON
+    pmv_obs_ref: -1.66,  // ✅ target
+  }
+
+  // ✅ Nilai awal saat refresh (SEMUA 0 seperti gambar)
+  // >>> normalisasi tetap ON agar ketika user tekan "Hitung" hasil ikut skala persepsi
+  const INITIAL_VALUES: Inputs = {
+    pmv_iso: 0,
+    v: 0,
+    svf: 0,
+    h_w: 0,
+    veg_func: 0,
+    u_site: 0,
+    u_jam: 0,
+    epsilon: 0,
+    normalize: true,     // ✅ ON
+    pmv_obs_ref: -1.66,  // ✅ target
+  }
+
+  // Referensi untuk normalisasi (baseline)
+  // Offset dihitung terhadap PMV_pre pada kondisi referensi ini,
+  // sehingga:
+  // - saat input = baseline -> PMV_final = PMV_obs_ref
+  // - saat input berubah -> PMV_final ikut berubah (tetap ada arah/perbedaan)
+  const NORM_REF = {
+    pmv_iso: Number(DEFAULT_VALUES.pmv_iso),
+    v: Number(DEFAULT_VALUES.v),
+    svf: Number(DEFAULT_VALUES.svf),
+    h_w: Number(DEFAULT_VALUES.h_w),
+    veg_func: Number(DEFAULT_VALUES.veg_func),
+    u_site: 0,
+    u_jam: 0,
+    epsilon: 0,
+  }
+
   const [inputs, setInputs] = useState<Inputs>(INITIAL_VALUES)
   const [results, setResults] = useState<PMVAbranResult | null>(null)
   const [errors, setErrors] = useState<string>('')
@@ -110,19 +127,21 @@ export default function ThermalComfortCalculator() {
 
   const round3 = (x: number): number => Number(x.toFixed(3))
 
-  const trunc3 = (x: number): number => {
-    if (x >= 0) return Math.floor(x * 1000) / 1000
-    return Math.ceil(x * 1000) / 1000
-  }
-
   /**
-   * PMV_abran (sesuai Bab 4):
-   * PMV_abran =
-   *   α + β1·PMV_iso + β2·e^{-k( H/W + αv·v )} + β3·(SVF·v) + β4·veg_func + u_site + u_jam + ε
+   * PMVabran (sesuai gambar):
    *
-   * Normalisasi (offset):
-   * PMV_final = PMV_pre + (PMV_obs_ref - PMV_pre)  -> hasil akhirnya jadi pmv_obs_ref
-   * (gunakan jika memang konsepnya "shift" ke referensi).
+   * PMVabran =
+   *   α + β₁·PMViso(Ta,RH,v,MRT)
+   *   + β₂·e^{-k( H/W + αᵥ·v )}
+   *   + β₃·(SVF·v)
+   *   + β₄·veg_func
+   *   + u_site + u_jam + ε
+   *
+   * Normalisasi (kalibrasi baseline):
+   * offset = PMV_obs_ref - PMV_pre_ref
+   * PMV_final = PMV_pre + offset
+   *
+   * (PMV_pre_ref dihitung dari baseline NORM_REF)
    */
   const calculatePMVAbran = (
     pmv_iso: number,
@@ -140,68 +159,82 @@ export default function ThermalComfortCalculator() {
       throw new Error('Semua input harus berupa angka')
     }
 
-    // 1) A = (H/W) + αv·v
-    const A = h_w + PARAMS.alphaV * v
+    const computePreTotal = (
+      _pmv_iso: number,
+      _v: number,
+      _svf: number,
+      _h_w: number,
+      _veg_func: number,
+      _u_site: number,
+      _u_jam: number,
+      _epsilon: number
+    ) => {
+      const A = _h_w + PARAMS.alphaV * _v
+      const exponent = -PARAMS.k * A
+      const exp_raw = Math.exp(exponent)
+      const exp_used = round3(exp_raw) // 3 desimal seperti bab 4
+      const SVFv = round3(_svf * _v)
 
-    // 2) exponent = -k·A
-    const exponent = -PARAMS.k * A
+      const termAlpha = round3(PARAMS.alpha)
+      const termBeta1 = round3(PARAMS.beta1 * _pmv_iso)
+      const termBeta2 = round3(PARAMS.beta2 * exp_used)
+      const termBeta3 = round3(PARAMS.beta3 * SVFv)
+      const termBeta4 = round3(PARAMS.beta4 * _veg_func)
+      const termUSite = round3(_u_site)
+      const termUJam = round3(_u_jam)
+      const termEps = round3(_epsilon)
 
-    // 3) expfactor_raw = e^(exponent)
-    const exp_raw = Math.exp(exponent)
+      const preTotal = round3(
+        termAlpha +
+        termBeta1 +
+        termBeta2 +
+        termBeta3 +
+        termBeta4 +
+        termUSite +
+        termUJam +
+        termEps
+      )
 
-    // Bab 4 menampilkan expfactor seperti 0.469 (3 desimal)
-    const exp_used = round3(exp_raw)
+      return {
+        A: round3(A),
+        exponent: round3(exponent),
+        expfactor_raw: round3(exp_raw),
+        expfactor_used: exp_used,
+        SVFv,
+        terms: {
+          alpha: termAlpha,
+          beta1: termBeta1,
+          beta2: termBeta2,
+          beta3: termBeta3,
+          beta4: termBeta4,
+          u_site: termUSite,
+          u_jam: termUJam,
+          epsilon: termEps,
+        },
+        preTotal,
+      }
+    }
 
-    // 4) SVFv = SVF·v
-    const SVFv = round3(svf * v)
+    // Current
+    const cur = computePreTotal(pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon)
 
-    // 5) komponen
-    const termAlpha = round3(PARAMS.alpha)
-    const termBeta1 = round3(PARAMS.beta1 * pmv_iso)
-
-    const termBeta2 = round3(PARAMS.beta2 * exp_used)
-    // const termBeta2 = trunc3(PARAMS.beta2 * exp_used)
-
-    const termBeta3 = round3(PARAMS.beta3 * SVFv)
-    const termBeta4 = round3(PARAMS.beta4 * veg_func)
-
-    const termUSite = round3(u_site)
-    const termUJam = round3(u_jam)
-    const termEps = round3(epsilon)
-
-    // 6) total sebelum normalisasi
-    const preTotal = round3(
-      termAlpha +
-      termBeta1 +
-      termBeta2 +
-      termBeta3 +
-      termBeta4 +
-      termUSite +
-      termUJam +
-      termEps
+    // Baseline for normalization
+    const ref = computePreTotal(
+      NORM_REF.pmv_iso,
+      NORM_REF.v,
+      NORM_REF.svf,
+      NORM_REF.h_w,
+      NORM_REF.veg_func,
+      NORM_REF.u_site,
+      NORM_REF.u_jam,
+      NORM_REF.epsilon
     )
 
-    // 7) normalisasi (offset)
-    const offset = normalize ? round3(pmv_obs_ref - preTotal) : 0
-    const total = round3(preTotal + offset)
+    const offset = normalize ? round3(pmv_obs_ref - ref.preTotal) : 0
+    const total = round3(cur.preTotal + offset)
 
     return {
-      A: round3(A),
-      exponent: round3(exponent),
-      expfactor_raw: round3(exp_raw),
-      expfactor_used: exp_used,
-      SVFv,
-      terms: {
-        alpha: termAlpha,
-        beta1: termBeta1,
-        beta2: termBeta2,
-        beta3: termBeta3,
-        beta4: termBeta4,
-        u_site: termUSite,
-        u_jam: termUJam,
-        epsilon: termEps,
-      },
-      preTotal,
+      ...cur,
       normalizationOffset: offset,
       total,
     }
@@ -264,10 +297,10 @@ export default function ThermalComfortCalculator() {
     }
   }
 
-  // ASHRAE 55 (rentang)
-  const getAshrae55Category = (pmv: number): AshraeResult => {
+  // ✅ Skala Persepsi (agar -1.66 masuk "Sejuk Nyaman")
+  const getPerceptionCategory = (pmv: number): CategoryResult => {
     if (pmv < -2.5) return { label: "Sangat Dingin", range: "< -2.5" }
-    if (pmv < -1.5) return { label: "Dingin", range: "[-2.5, -1.5)" }
+    if (pmv < -1.5) return { label: "Sejuk Nyaman", range: "[-2.5, -1.5)" } // ✅ target -1.66 masuk sini
     if (pmv < -0.5) return { label: "Sejuk", range: "[-1.5, -0.5)" }
     if (pmv < 0.5) return { label: "Netral (Nyaman)", range: "[-0.5, 0.5)" }
     if (pmv < 1.5) return { label: "Hangat", range: "[0.5, 1.5)" }
@@ -275,9 +308,9 @@ export default function ThermalComfortCalculator() {
     return { label: "Sangat Panas", range: "≥ 2.5" }
   }
 
-  const ashrae = useMemo(() => {
+  const perception = useMemo(() => {
     if (!results) return null
-    return getAshrae55Category(Number(results.total))
+    return getPerceptionCategory(Number(results.total))
   }, [results])
 
   // Breakdown chart
@@ -287,7 +320,7 @@ export default function ThermalComfortCalculator() {
     const terms = [
       { name: 'α', component: Number(results.terms.alpha) },
       { name: 'β₁·PMVᵢₛₒ', component: Number(results.terms.beta1) },
-      { name: 'β₂·exp', component: Number(results.terms.beta2) },
+      { name: 'β₂·e^{-k(H/W+αᵥv)}', component: Number(results.terms.beta2) },
       { name: 'β₃·(SVF·v)', component: Number(results.terms.beta3) },
       { name: 'β₄·veg_func', component: Number(results.terms.beta4) },
       { name: 'u_site', component: Number(results.terms.u_site) },
@@ -314,85 +347,241 @@ export default function ThermalComfortCalculator() {
     return data
   }, [results])
 
-  // ✅ Download grafik PNG
-  const handleDownloadChartPNG = async () => {
-    if (!chartRef.current) return
-    const date = new Date().toISOString().slice(0, 10)
-
-    try {
-      const canvas = await html2canvas(chartRef.current, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        onclone: (clonedDoc) => {
-          const root = clonedDoc.getElementById("chart-export") as HTMLElement | null
-          if (!root) return
-
-          root.style.backgroundColor = "#ffffff"
-          root.style.boxShadow = "none"
-          root.style.filter = "none"
-
-          root.querySelectorAll<HTMLElement>("*").forEach((el) => {
-            if (el.closest("svg")) return
-            el.style.setProperty("color", "#111827", "important")
-            el.style.setProperty("background-color", "transparent", "important")
-            el.style.setProperty("border-color", "#e5e7eb", "important")
-            el.style.setProperty("outline-color", "#e5e7eb", "important")
-            el.style.setProperty("caret-color", "#111827", "important")
-            el.style.setProperty("text-decoration-color", "#111827", "important")
-            el.style.boxShadow = "none"
-            el.style.textShadow = "none"
-            el.style.filter = "none"
-            ;(el.style as any).backdropFilter = "none"
-            el.style.backgroundImage = "none"
-          })
-        },
-      })
-
-      const dataUrl = canvas.toDataURL("image/png")
-      const a = document.createElement("a")
-      a.href = dataUrl
-      a.download = `Grafik-PMVabran-${date}.png`
-      a.click()
-    } catch {
-      const svg = chartRef.current.querySelector("svg")
-      if (!svg) return
-
-      const rect = svg.getBoundingClientRect()
-      const scale = 2
-
-      const svgText = new XMLSerializer().serializeToString(svg)
+  // ===========================
+  // Helpers: SVG -> PNG (tanpa html2canvas)
+  // ===========================
+  const svgToPngDataUrl = async (
+    svgText: string,
+    width: number,
+    height: number,
+    scale = 2
+  ): Promise<string> => {
+    return await new Promise((resolve, reject) => {
       const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
       const url = URL.createObjectURL(blob)
 
       const img = new Image()
       img.onload = () => {
-        const canvas = document.createElement("canvas")
-        canvas.width = Math.ceil(rect.width * scale)
-        canvas.height = Math.ceil(rect.height * scale)
+        try {
+          const canvas = document.createElement("canvas")
+          canvas.width = Math.ceil(width * scale)
+          canvas.height = Math.ceil(height * scale)
 
-        const ctx = canvas.getContext("2d")
-        if (!ctx) return
+          const ctx = canvas.getContext("2d")
+          if (!ctx) {
+            URL.revokeObjectURL(url)
+            reject(new Error("Canvas context null"))
+            return
+          }
 
-        ctx.fillStyle = "#ffffff"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          ctx.setTransform(scale, 0, 0, scale, 0, 0)
+          ctx.fillStyle = "#ffffff"
+          ctx.fillRect(0, 0, width, height)
+          ctx.drawImage(img, 0, 0, width, height)
 
-        URL.revokeObjectURL(url)
-
-        const dataUrl = canvas.toDataURL("image/png")
-        const a = document.createElement("a")
-        a.href = dataUrl
-        a.download = `Grafik-PMVabran-${date}.png`
-        a.click()
+          URL.revokeObjectURL(url)
+          resolve(canvas.toDataURL("image/png"))
+        } catch (e) {
+          URL.revokeObjectURL(url)
+          reject(e)
+        }
       }
-      img.onerror = () => URL.revokeObjectURL(url)
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        reject(new Error("Gagal memuat SVG"))
+      }
       img.src = url
+    })
+  }
+
+  // ===========================
+  // Download Grafik PNG (tanpa html2canvas) -> ambil SVG Recharts
+  // ===========================
+  const handleDownloadChartPNG = async () => {
+    if (!chartRef.current) return
+    const date = new Date().toISOString().slice(0, 10)
+
+    const svg = chartRef.current.querySelector("svg") as SVGSVGElement | null
+    if (!svg) return
+
+    const rect = svg.getBoundingClientRect()
+    const w = Math.ceil(rect.width)
+    const h = Math.ceil(rect.height)
+
+    const clonedSvg = svg.cloneNode(true) as SVGSVGElement
+    clonedSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg")
+    clonedSvg.setAttribute("width", String(w))
+    clonedSvg.setAttribute("height", String(h))
+    clonedSvg.setAttribute("viewBox", `0 0 ${w} ${h}`)
+
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+    bg.setAttribute("x", "0")
+    bg.setAttribute("y", "0")
+    bg.setAttribute("width", "100%")
+    bg.setAttribute("height", "100%")
+    bg.setAttribute("fill", "#ffffff")
+    clonedSvg.insertBefore(bg, clonedSvg.firstChild)
+
+    clonedSvg.querySelectorAll("text, tspan").forEach((t) => {
+      const el = t as SVGElement
+      if (!el.getAttribute("fill")) el.setAttribute("fill", "#111827")
+    })
+
+    const svgText = new XMLSerializer().serializeToString(clonedSvg)
+
+    try {
+      const dataUrl = await svgToPngDataUrl(svgText, w, h, 2)
+      const a = document.createElement("a")
+      a.href = dataUrl
+      a.download = `Grafik-PMVabran-${date}.png`
+      a.click()
+    } catch {
+      const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Grafik-PMVabran-${date}.svg`
+      a.click()
+      URL.revokeObjectURL(url)
     }
   }
 
-  // ✅ Download PDF
-  const handleDownloadPDF = () => {
+  // ===========================
+  // SVG blocks untuk PDF (simbol sesuai gambar)
+  // ===========================
+  const SVG_W = 1400
+  const svgWrap = (h: number, inner: string) =>
+    `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_W}" height="${h}" viewBox="0 0 ${SVG_W} ${h}">
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+  ${inner}
+</svg>`
+
+  const sub = (text: string, size = 18) =>
+    `<tspan font-size="${size}" baseline-shift="sub">${text}</tspan>`
+  const sup = (text: string, size = 18) =>
+    `<tspan font-size="${size}" baseline-shift="super">${text}</tspan>`
+
+  const formulaSvg = () => {
+    const h = 130
+    const font = "Times New Roman, serif"
+    const size = 26
+    const subSize = 18
+    const x = 30
+    return {
+      w: SVG_W,
+      h,
+      svg: svgWrap(h, `
+  <text x="${x}" y="55" font-family="${font}" font-size="${size}" fill="#000">
+    PMV${sub("abran", subSize)} = α + β${sub("1", subSize)} PMV${sub("iso", subSize)}(T${sub("a", subSize)}, RH, v, MRT)
+    + β${sub("2", subSize)} e${sup("-k(H/W + α", subSize)}${sup("v", subSize)}${sup("·v)", subSize)}
+  </text>
+  <text x="${x}" y="100" font-family="${font}" font-size="${size}" fill="#000">
+    + β${sub("3", subSize)} (SVF · v) + β${sub("4", subSize)} veg${sub("func", subSize)}
+    + u${sub("site", subSize)} + u${sub("jam", subSize)} + ε
+  </text>
+      `),
+    }
+  }
+
+  const paramsSvg = () => {
+    const h = 280
+    const font = "Times New Roman, serif"
+    const size = 30
+    const line = 36
+    const x = 70
+    let y = 60
+
+    const rows = [
+      `α = ${PARAMS.alpha}`,
+      `β${sub("1", 22)} = ${PARAMS.beta1}`,
+      `β${sub("2", 22)} = ${PARAMS.beta2}`,
+      `β${sub("3", 22)} = ${PARAMS.beta3}`,
+      `β${sub("4", 22)} = ${PARAMS.beta4}`,
+      `k = ${PARAMS.k}`,
+      `α${sub("v", 22)} = ${PARAMS.alphaV}`,
+    ]
+
+    const inner = [
+      `<text x="${x}" y="${y}" font-family="${font}" font-size="${size}" font-weight="700" fill="#000">PARAMETER MODEL</text>`,
+    ]
+    y += 55
+    for (const r of rows) {
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="28" fill="#000">${r}</text>`)
+      y += line
+    }
+
+    return { w: SVG_W, h, svg: svgWrap(h, inner.join("\n")) }
+  }
+
+  const stepsSvg = (r: PMVAbranResult) => {
+    const h = 210
+    const font = "Times New Roman, serif"
+    const x = 60
+    let y = 55
+    const line = 34
+
+    const inner = [
+      `<text x="${x}" y="${y}" font-family="${font}" font-size="28" font-weight="700" fill="#000">LANGKAH PERHITUNGAN</text>`,
+    ]
+    y += 50
+    const rows = [
+      `A = H/W + α${sub("v", 18)}·v = ${r.A.toFixed(3)}`,
+      `Exponent = −k·A = ${r.exponent.toFixed(3)}`,
+      `expfactor (raw) = e^(Exponent) = ${r.expfactor_raw.toFixed(3)}`,
+      `expfactor (used, 3 desimal) = ${Number(r.expfactor_used).toFixed(3)}`,
+      `SVF·v = ${r.SVFv.toFixed(3)}`,
+    ]
+    for (const rr of rows) {
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="24" fill="#000">${rr}</text>`)
+      y += line
+    }
+
+    return { w: SVG_W, h, svg: svgWrap(h, inner.join("\n")) }
+  }
+
+  const componentsSvg = (r: PMVAbranResult) => {
+    const h = 430
+    const font = "Times New Roman, serif"
+    const x = 60
+    let y = 55
+    const line = 34
+
+    const inner = [
+      `<text x="${x}" y="${y}" font-family="${font}" font-size="28" font-weight="700" fill="#000">KOMPONEN HASIL</text>`,
+    ]
+    y += 50
+
+    const rows = [
+      `α = ${Number(r.terms.alpha).toFixed(3)}`,
+      `β${sub("1", 18)} · PMV${sub("iso", 18)} = ${Number(r.terms.beta1).toFixed(3)}`,
+      `β${sub("2", 18)} · e${sup("-k(H/W + α", 18)}${sup("v", 18)}${sup("·v)", 18)} = ${Number(r.terms.beta2).toFixed(3)}`,
+      `β${sub("3", 18)} · (SVF·v) = ${Number(r.terms.beta3).toFixed(3)}`,
+      `β${sub("4", 18)} · veg${sub("func", 18)} = ${Number(r.terms.beta4).toFixed(3)}`,
+      `u${sub("site", 18)} = ${Number(r.terms.u_site).toFixed(3)}`,
+      `u${sub("jam", 18)} = ${Number(r.terms.u_jam).toFixed(3)}`,
+      `ε = ${Number(r.terms.epsilon).toFixed(3)}`,
+      `PMV${sub("pre", 18)} = ${Number(r.preTotal).toFixed(3)}`,
+      `Offset (normalisasi) = ${Number(r.normalizationOffset).toFixed(3)}`,
+    ]
+
+    for (const rr of rows) {
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="24" fill="#000">${rr}</text>`)
+      y += line
+    }
+
+    y += 10
+    inner.push(
+      `<text x="${x}" y="${y}" font-family="${font}" font-size="28" font-weight="700" fill="#000">
+        TOTAL PMV${sub("abran", 20)} = ${Number(r.total).toFixed(3)}
+      </text>`
+    )
+
+    return { w: SVG_W, h, svg: svgWrap(h, inner.join("\n")) }
+  }
+
+  // ✅ Download PDF (tanpa html2canvas -> tidak akan error "lab")
+  const handleDownloadPDF = async () => {
     if (!results) return
 
     const doc = new jsPDF({ unit: "pt", format: "a4" })
@@ -424,14 +613,6 @@ export default function ThermalComfortCalculator() {
         .replace(/\u00B1/g, "+/-")
         .replace(/\u00D7/g, "x")
         .replace(/\u00B7/g, "*")
-        .replace(/[α]/g, "alpha")
-        .replace(/[β]/g, "beta")
-        .replace(/[ε]/g, "epsilon")
-        .replace(/[ᵥ]/g, "v")
-        .replace(/[₁]/g, "1")
-        .replace(/[₂]/g, "2")
-        .replace(/[₃]/g, "3")
-        .replace(/[₄]/g, "4")
 
     const write = (text: string, opts?: { bold?: boolean; size?: number }) => {
       ensureSpace(24)
@@ -457,6 +638,15 @@ export default function ThermalComfortCalculator() {
       y += lineGap
     }
 
+    const addSvgToPdf = async (svgText: string, svgW: number, svgH: number) => {
+      const png = await svgToPngDataUrl(svgText, svgW, svgH, 2)
+      const imgW = maxW
+      const imgH = (svgH * imgW) / svgW
+      ensureSpace(imgH + 10)
+      doc.addImage(png, "PNG", marginX, y, imgW, imgH)
+      y += imgH + 10
+    }
+
     const now = new Date()
     const dateStr = now.toLocaleString()
 
@@ -465,20 +655,29 @@ export default function ThermalComfortCalculator() {
     doc.text("THERMAL COMFORT ENVIRONMENT", marginX, y); y += 18
 
     doc.setFontSize(12)
-    doc.text("HASIL ANALISIS KALKULASI MODEL PMVabran", marginX, y); y += 16
+    doc.text("HASIL ANALISIS KALKULASI MODEL PMVpesisir", marginX, y); y += 16
 
     doc.setFont("helvetica", "normal")
     doc.setFontSize(10)
     doc.text(`Tanggal/Jam: ${dateStr}`, marginX, y); y += 12
     hr()
 
-    write("RUMUS (Bab 4)")
-    write("PMVabran = alpha + beta1*PMV_iso + beta2*exp(-k*(H/W + alphaV*v)) + beta3*(SVF*v) + beta4*vegfunc + u_site + u_jam + epsilon")
+    // RUMUS
+    write("1. Model Persamaan Fisiologis PMVpesisir Adalah Indeks Evaluasi Kontekstual Untuk Kasus Spesifik Permukiman Pesisir Tropis.")
+    try {
+      const f = formulaSvg()
+      await addSvgToPdf(f.svg, f.w, f.h)
+    } catch {
+      write("PMVabran = alpha + beta1*PMV_iso + beta2*exp(-k*(H/W + alphaV*v)) + beta3*(SVF*v) + beta4*vegfunc + u_site + u_jam + epsilon")
+    }
+
     if (inputs.normalize) {
-      write("Normalisasi (offset): PMV_final = PMV_pre + (PMV_obs_ref - PMV_pre)")
+      write(`Normalisasi (kalibrasi baseline): PMV_final = PMV_pre + (PMV_obs_ref - PMV_pre_ref)`)
+      write(`PMV_obs_ref = ${Number(inputs.pmv_obs_ref).toFixed(2)}   (target persepsi)`)
     }
     hr()
 
+    // INPUT
     write("INPUT", { bold: true, size: 12 })
     hr()
     writeKV("PMV_iso", String(inputs.pmv_iso))
@@ -493,45 +692,64 @@ export default function ThermalComfortCalculator() {
     writeKV("PMV_obs_ref", String(inputs.pmv_obs_ref))
     hr()
 
+    // PARAMETER MODEL
     write("PARAMETER MODEL", { bold: true, size: 12 })
     hr()
-    writeKV("alpha", String(PARAMS.alpha))
-    writeKV("beta1", String(PARAMS.beta1))
-    writeKV("beta2", String(PARAMS.beta2))
-    writeKV("beta3", String(PARAMS.beta3))
-    writeKV("beta4", String(PARAMS.beta4))
-    writeKV("k", String(PARAMS.k))
-    writeKV("alphaV", String(PARAMS.alphaV))
+    try {
+      const p = paramsSvg()
+      await addSvgToPdf(p.svg, p.w, p.h)
+    } catch {
+      writeKV("alpha", String(PARAMS.alpha))
+      writeKV("beta1", String(PARAMS.beta1))
+      writeKV("beta2", String(PARAMS.beta2))
+      writeKV("beta3", String(PARAMS.beta3))
+      writeKV("beta4", String(PARAMS.beta4))
+      writeKV("k", String(PARAMS.k))
+      writeKV("alphaV", String(PARAMS.alphaV))
+    }
     hr()
 
+    // LANGKAH PERHITUNGAN
     write("LANGKAH PERHITUNGAN", { bold: true, size: 12 })
     hr()
-    writeKV("A", `${results.A}   (H/W + alphaV*v)`)
-    writeKV("exponent", `${results.exponent}   (-k*A)`)
-    writeKV("expfactor_raw", `${results.expfactor_raw}`)
-    writeKV("expfactor_used", `${results.expfactor_used}   (dibulatkan 3 desimal)`)
-    writeKV("SVF*v", `${results.SVFv}`)
+    try {
+      const s = stepsSvg(results)
+      await addSvgToPdf(s.svg, s.w, s.h)
+    } catch {
+      writeKV("A", `${results.A} (H/W + alphaV*v)`)
+      writeKV("Exponent", `${results.exponent} (-k*A)`)
+      writeKV("expfactor_raw", `${results.expfactor_raw}`)
+      writeKV("expfactor_used", `${results.expfactor_used}`)
+      writeKV("SVF*v", `${results.SVFv}`)
+    }
     hr()
 
+    // KOMPONEN HASIL
     write("KOMPONEN HASIL", { bold: true, size: 12 })
     hr()
-    writeKV("alpha", String(results.terms.alpha))
-    writeKV("beta1*PMV_iso", String(results.terms.beta1))
-    writeKV("beta2*expfactor", String(results.terms.beta2))
-    writeKV("beta3*(SVF*v)", String(results.terms.beta3))
-    writeKV("beta4*vegfunc", String(results.terms.beta4))
-    writeKV("u_site", String(results.terms.u_site))
-    writeKV("u_jam", String(results.terms.u_jam))
-    writeKV("epsilon", String(results.terms.epsilon))
-    writeKV("PMV_pre", String(results.preTotal))
-    writeKV("offset_norm", String(results.normalizationOffset))
+    try {
+      const c = componentsSvg(results)
+      await addSvgToPdf(c.svg, c.w, c.h)
+    } catch {
+      writeKV("alpha", String(results.terms.alpha))
+      writeKV("beta1*PMV_iso", String(results.terms.beta1))
+      writeKV("beta2*expfactor", String(results.terms.beta2))
+      writeKV("beta3*(SVF*v)", String(results.terms.beta3))
+      writeKV("beta4*vegfunc", String(results.terms.beta4))
+      writeKV("u_site", String(results.terms.u_site))
+      writeKV("u_jam", String(results.terms.u_jam))
+      writeKV("epsilon", String(results.terms.epsilon))
+      writeKV("PMV_pre", String(results.preTotal))
+      writeKV("offset_norm", String(results.normalizationOffset))
+    }
     hr()
 
-    if (ashrae) {
-      write("PERBANDINGAN STANDAR PMV (ASHRAE 55)", { bold: true, size: 12 })
+    // SKALA PERSEPSI
+    if (perception) {
+      write("KATEGORI PMV (SKALA PERSEPSI)", { bold: true, size: 12 })
       hr()
       writeKV("PMVabran", `${Number(results.total).toFixed(3)}`)
-      writeKV("Kategori", `${ashrae.label} (rentang ${ashrae.range})`)
+      writeKV("Kategori", `${perception.label} (rentang ${perception.range})`)
       hr()
     }
 
@@ -568,7 +786,7 @@ export default function ThermalComfortCalculator() {
             <span className="text-blue-900">Thermal Comfort Environment</span>
           </h1>
           <p className="text-slate-600">
-            Model PMVabran — Perhitungan Kenyamanan Termal Adaptif (Permukiman Pesisir)
+            Model PMVpesisir — Perhitungan Kenyamanan Termal Adaptif (Permukiman Pesisir)
           </p>
         </div>
 
@@ -604,7 +822,7 @@ export default function ThermalComfortCalculator() {
                   />
                 </div>
 
-                {/* v */}
+                {/* v (label dibiarkan sesuai permintaan kamu) */}
                 <div className="space-y-2">
                   <Label htmlFor="v" className="text-sm font-medium text-slate-700">
                     Alfa (α)
@@ -674,14 +892,13 @@ export default function ThermalComfortCalculator() {
                     placeholder="1"
                   />
                 </div>
-
               </div>
 
               {/* u_site, u_jam, epsilon */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="u_jam" className="text-sm font-medium text-slate-700">
+                    <Label htmlFor="u_site" className="text-sm font-medium text-slate-700">
                       <span className="inline-flex items-baseline gap-0">
                         <span>u</span>
                         <sub className="m-0 p-0 leading-none text-[0.75em] italic">
@@ -719,7 +936,6 @@ export default function ThermalComfortCalculator() {
                     />
                   </div>
 
-
                   <div className="space-y-2">
                     <Label htmlFor="epsilon" className="text-sm font-medium text-slate-700">
                       ε
@@ -755,12 +971,12 @@ export default function ThermalComfortCalculator() {
                 <div className="space-y-1 text-sm text-slate-800">
                   {[
                     { no: "1.", left: "α (intersep)", right: PARAMS.alpha },
-                    { no: "2.", left: "β1", right: PARAMS.beta1 },
-                    { no: "3.", left: "β2", right: PARAMS.beta2 },
-                    { no: "4.", left: "β3", right: PARAMS.beta3 },
-                    { no: "5.", left: "β4", right: PARAMS.beta4 },
+                    { no: "2.", left: "β₁", right: PARAMS.beta1 },
+                    { no: "3.", left: "β₂", right: PARAMS.beta2 },
+                    { no: "4.", left: "β₃", right: PARAMS.beta3 },
+                    { no: "5.", left: "β₄", right: PARAMS.beta4 },
                     { no: "6.", left: "k", right: PARAMS.k },
-                    { no: "7.", left: "αv", right: PARAMS.alphaV },
+                    { no: "7.", left: "αᵥ", right: PARAMS.alphaV },
                   ].map((row, idx) => (
                     <div key={idx} className="grid grid-cols-[210px_22px_90px] items-center">
                       <span className="font-medium">{row.no}&nbsp;&nbsp;{row.left}</span>
@@ -768,6 +984,10 @@ export default function ThermalComfortCalculator() {
                       <span className="text-right font-medium">{String(row.right)}</span>
                     </div>
                   ))}
+                </div>
+
+                <div className="mt-3 text-xs text-slate-600 border-t border-slate-200 pt-3">
+                  Normalisasi aktif (baseline) → target persepsi: <b>{Number(inputs.pmv_obs_ref).toFixed(2)}</b>
                 </div>
               </div>
             </CardContent>
@@ -791,22 +1011,27 @@ export default function ThermalComfortCalculator() {
                     </p>
                   </div>
 
-                  <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
-                    <p className="text-sm font-semibold text-slate-900 mb-1">
-                      Nilai ini kemudian dinormalisasi terhadap PMV observasi lapangan  (–0.61) untuk skala relatif lokasi, menghasilkan estimasi model yang mengikuti arah perubahan spasial kenyamanan
-                    </p>
-                  </div>
-
-                  {ashrae && (
+                  {inputs.normalize && (
                     <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
                       <p className="text-sm font-semibold text-slate-900 mb-1">
-                        Perbandingan Standar PMV (ASHRAE 55)
+                        Nilai ini dinormalisasi (kalibrasi baseline) terhadap PMV observasi lapangan
+                        {" "}(<span className="font-mono">{Number(inputs.pmv_obs_ref).toFixed(2)}</span>)
+                        {" "}agar mengikuti skala persepsi lokasi (tetap mempertahankan arah perubahan).
+                      </p>
+                    </div>
+                  )}
+
+                  {perception && (
+                    <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
+                      <p className="text-sm font-semibold text-slate-900 mb-1">
+                        Kategori PMV (Skala Persepsi)
                       </p>
                       <p className="text-sm text-slate-700">
-                        PMVabran <span className="font-mono font-semibold text-blue-700">{Number(results.total).toFixed(3)}</span>
+                        PMVabran{" "}
+                        <span className="font-mono font-semibold text-blue-700">{Number(results.total).toFixed(3)}</span>
                         {" "}→{" "}
-                        <span className="font-semibold">{ashrae.label}</span>
-                        {" "}({ashrae.range})
+                        <span className="font-semibold">{perception.label}</span>
+                        {" "}({perception.range})
                       </p>
                     </div>
                   )}
@@ -828,11 +1053,11 @@ export default function ThermalComfortCalculator() {
                       </p>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between py-2 border-b border-slate-100">
-                          <span className="text-slate-600">A = H/W + αv × v</span>
+                          <span className="text-slate-600">A = H/W + αᵥ × v</span>
                           <span className="font-mono font-semibold text-slate-900">{results.A}</span>
                         </div>
                         <div className="flex justify-between py-2 border-b border-slate-100">
-                          <span className="text-slate-600">Exponent = -k × A</span>
+                          <span className="text-slate-600">Exponent = −k × A</span>
                           <span className="font-mono font-semibold text-slate-900">{results.exponent}</span>
                         </div>
                         <div className="flex justify-between py-2 border-b border-slate-100">
@@ -855,15 +1080,15 @@ export default function ThermalComfortCalculator() {
                       <div className="space-y-2 text-sm bg-slate-50 p-3 rounded-lg">
                         {[
                           ["α", results.terms.alpha],
-                          ["β₁ × PMViso", results.terms.beta1],
-                          ["β₂ × expfactor", results.terms.beta2],
-                          ["β₃ × (SVF×v)", results.terms.beta3],
-                          ["β₄ × vegfunc", results.terms.beta4],
+                          ["β₁ × PMVᵢₛₒ", results.terms.beta1],
+                          ["β₂ × e^{-k(H/W+αᵥv)}", results.terms.beta2],
+                          ["β₃ × (SVF·v)", results.terms.beta3],
+                          ["β₄ × veg_func", results.terms.beta4],
                           ["u_site", results.terms.u_site],
                           ["u_jam", results.terms.u_jam],
                           ["ε", results.terms.epsilon],
                           ["PMV_pre", results.preTotal],
-                          
+                          ["Offset", results.normalizationOffset],
                         ].map(([k, v], i) => (
                           <div key={i} className="flex justify-between">
                             <span className="text-slate-600">{k}</span>
@@ -904,74 +1129,71 @@ export default function ThermalComfortCalculator() {
 
         {/* Distribusi PMV */}
         {results && (
-  <div className="mt-6">
-    <Card>
-      <CardHeader className="border-b bg-white">
-        <CardTitle className="text-lg">Distribusi PMV</CardTitle>
-        <CardDescription>
-          Grafik kontribusi tiap komponen terhadap total PMVabran (termasuk offset normalisasi jika aktif).
-        </CardDescription>
-      </CardHeader>
+          <div className="mt-6">
+            <Card>
+              <CardHeader className="border-b bg-white">
+                <CardTitle className="text-lg">Distribusi PMV</CardTitle>
+                <CardDescription>
+                  Grafik kontribusi tiap komponen terhadap total PMVabran (termasuk offset normalisasi jika aktif).
+                </CardDescription>
+              </CardHeader>
 
-      <CardContent className="pt-6">
-        <div
-          id="chart-export"
-          className="rounded-lg border border-slate-200 bg-white p-4"
-          ref={chartRef}
-        >
-          <p className="text-sm font-semibold text-slate-800 mb-3">
-            Breakdown Komponen & Akumulasi
-          </p>
+              <CardContent className="pt-6">
+                <div
+                  id="chart-export"
+                  className="rounded-lg border border-slate-200 bg-white p-4"
+                  ref={chartRef}
+                >
+                  <p className="text-sm font-semibold text-slate-800 mb-3">
+                    Breakdown Komponen & Akumulasi
+                  </p>
 
-          <div className="h-[380px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={breakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
+                  <div className="h-[380px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={breakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
 
-                {/* ✅ Hijau: Nilai Komponen */}
-                <Bar dataKey="component" name="Nilai Komponen" fill="#16a34a" />
+                        <Bar dataKey="component" name="Nilai Komponen" fill="#16a34a" />
 
-                {/* ✅ Biru: Akumulasi */}
-                <Line
-                  type="monotone"
-                  dataKey="cumulative"
-                  name="Akumulasi"
-                  stroke="#2563eb"
-                  strokeWidth={2}
-                  dot
-                  isAnimationActive={false}
-                />
+                        <Line
+                          type="monotone"
+                          dataKey="cumulative"
+                          name="Akumulasi"
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                          dot
+                          isAnimationActive={false}
+                        />
 
-                {/* ✅ Merah: Total */}
-                <ReferenceDot
-                  x="Total"
-                  y={Number(results.total)}
-                  r={7}
-                  fill="#dc2626"
-                  stroke="#dc2626"
-                  strokeWidth={2}
-                  label={{
-                    value: `Total: ${Number(results.total).toFixed(3)}`,
-                    position: 'top',
-                    fill: '#dc2626',
-                  }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+                        <ReferenceDot
+                          x="Total"
+                          y={Number(results.total)}
+                          r={7}
+                          fill="#dc2626"
+                          stroke="#dc2626"
+                          strokeWidth={2}
+                          label={{
+                            value: `Total: ${Number(results.total).toFixed(3)}`,
+                            position: 'top',
+                            fill: '#dc2626',
+                          }}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mt-3">
+                    Batang = kontribusi tiap komponen, garis = akumulasi sampai total PMVabran.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-
-          <p className="text-xs text-slate-500 mt-3">
-            Batang = kontribusi tiap komponen, garis = akumulasi sampai total PMVabran.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  </div>
-)}
+        )}
 
         {/* Footer */}
         <footer className="mt-10 border-t border-slate-200 bg-white/70 backdrop-blur">
