@@ -652,7 +652,17 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="veg_func" className="text-sm font-medium text-slate-700">
-                    Vegetasi Function (Vegfunc)
+                    <span>Vegetasi Function </span>
+                    <span className="inline-flex items-baseline gap-0">
+                      <span>(</span>
+                      <span className="italic">
+                        veg
+                        <sub className="m-0 p-0 leading-none text-[0.75em] italic">
+                          func
+                        </sub>
+                      </span>
+                      <span>)</span>
+                    </span>
                   </Label>
 
                   <Input
@@ -664,14 +674,20 @@ export default function ThermalComfortCalculator() {
                     placeholder="1"
                   />
                 </div>
+
               </div>
 
               {/* u_site, u_jam, epsilon */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="u_site" className="text-sm font-medium text-slate-700">
-                      u<sub>site</sub>
+                    <Label htmlFor="u_jam" className="text-sm font-medium text-slate-700">
+                      <span className="inline-flex items-baseline gap-0">
+                        <span>u</span>
+                        <sub className="m-0 p-0 leading-none text-[0.75em] italic">
+                          site
+                        </sub>
+                      </span>
                     </Label>
                     <Input
                       id="u_site"
@@ -685,8 +701,14 @@ export default function ThermalComfortCalculator() {
 
                   <div className="space-y-2">
                     <Label htmlFor="u_jam" className="text-sm font-medium text-slate-700">
-                      u<sub>jam</sub>
+                      <span className="inline-flex items-baseline gap-0">
+                        <span>u</span>
+                        <sub className="m-0 p-0 leading-none text-[0.75em] italic relative top-[0.15em]">
+                          jam
+                        </sub>
+                      </span>
                     </Label>
+
                     <Input
                       id="u_jam"
                       type="number"
@@ -696,6 +718,7 @@ export default function ThermalComfortCalculator() {
                       placeholder="0"
                     />
                   </div>
+
 
                   <div className="space-y-2">
                     <Label htmlFor="epsilon" className="text-sm font-medium text-slate-700">
