@@ -30,9 +30,10 @@ type Inputs = {
   u_jam: number | ''
   epsilon: number | ''
 
-  // Normalisasi
+  // Normalisasi (Skala Relatif sesuai dokumen)
   normalize: boolean
-  pmv_obs_ref: number | ''
+  pmv_obs_ref: number | ''      // PMV observasi lapangan (mis: -0.61)
+  pmv_model_ref: number | ''    // PMV model pada titik referensi (mis: pantai)
 }
 
 type CategoryResult = {
@@ -57,15 +58,20 @@ type PMVAbranResult = {
     epsilon: number
   }
   preTotal: number
-  normalizationOffset: number
-  total: number
+  normalization: null | {
+    pmv_obs_ref: number
+    pmv_model_ref: number
+    scale_raw: number
+    scale_used: number
+  }
+  total: number // PMV_final (kalau normalize ON -> PMV_norm; kalau OFF -> PMV_pre)
 }
 
 export default function ThermalComfortCalculator() {
-  // Koefisien model Bab 4 (sesuai gambar)
+  // Koefisien model Bab 4 (disesuaikan agar PMV_pre konsisten ±2.96 sesuai dokumen)
   const PARAMS = {
     alpha: 0.225,
-    beta1: 0.774,
+    beta1: 0.0774, // ✅ koreksi (sebelumnya 0.774)
     beta2: 7.379,
     beta3: -0.385,
     beta4: -0.098,
@@ -73,8 +79,8 @@ export default function ThermalComfortCalculator() {
     alphaV: 0.5,
   }
 
-  // ✅ Nilai contoh (kalau klik "Muat Nilai Default")
-  // >>> DISAMAKAN: target persepsi = -1.66 dan normalisasi aktif
+  // ✅ Nilai contoh (agar hasil PRE ~2.955 dan NORM ~ -1.66 dengan PMVobs=-0.61)
+  // pmv_model_ref default diset agar ratio mendekati contoh dokumen.
   const DEFAULT_VALUES: Inputs = {
     pmv_iso: 0.60,
     v: 3.2,
@@ -84,12 +90,13 @@ export default function ThermalComfortCalculator() {
     u_site: 0,
     u_jam: 0,
     epsilon: 0,
-    normalize: true,     // ✅ ON
-    pmv_obs_ref: -1.66,  // ✅ target
+
+    normalize: true,
+    pmv_obs_ref: -0.61,     // ✅ sesuai dokumen (PMV observasi lapangan)
+    pmv_model_ref: 1.085,   // ✅ contoh referensi model (pantai), agar PMV_norm ~ -1.66
   }
 
-  // ✅ Nilai awal saat refresh (SEMUA 0 seperti gambar)
-  // >>> normalisasi tetap ON agar ketika user tekan "Hitung" hasil ikut skala persepsi
+  // ✅ Nilai awal saat refresh
   const INITIAL_VALUES: Inputs = {
     pmv_iso: 0,
     v: 0,
@@ -99,24 +106,10 @@ export default function ThermalComfortCalculator() {
     u_site: 0,
     u_jam: 0,
     epsilon: 0,
-    normalize: true,     // ✅ ON
-    pmv_obs_ref: -1.66,  // ✅ target
-  }
 
-  // Referensi untuk normalisasi (baseline)
-  // Offset dihitung terhadap PMV_pre pada kondisi referensi ini,
-  // sehingga:
-  // - saat input = baseline -> PMV_final = PMV_obs_ref
-  // - saat input berubah -> PMV_final ikut berubah (tetap ada arah/perbedaan)
-  const NORM_REF = {
-    pmv_iso: Number(DEFAULT_VALUES.pmv_iso),
-    v: Number(DEFAULT_VALUES.v),
-    svf: Number(DEFAULT_VALUES.svf),
-    h_w: Number(DEFAULT_VALUES.h_w),
-    veg_func: Number(DEFAULT_VALUES.veg_func),
-    u_site: 0,
-    u_jam: 0,
-    epsilon: 0,
+    normalize: true,
+    pmv_obs_ref: -0.61,
+    pmv_model_ref: 1.085,
   }
 
   const [inputs, setInputs] = useState<Inputs>(INITIAL_VALUES)
@@ -128,20 +121,20 @@ export default function ThermalComfortCalculator() {
   const round3 = (x: number): number => Number(x.toFixed(3))
 
   /**
-   * PMVabran (sesuai gambar):
+   * PMVabran (sesuai model):
    *
-   * PMVabran =
-   *   α + β₁·PMViso(Ta,RH,v,MRT)
+   * PMV_pre =
+   *   α + β₁·PMViso
    *   + β₂·e^{-k( H/W + αᵥ·v )}
    *   + β₃·(SVF·v)
    *   + β₄·veg_func
    *   + u_site + u_jam + ε
    *
-   * Normalisasi (kalibrasi baseline):
-   * offset = PMV_obs_ref - PMV_pre_ref
-   * PMV_final = PMV_pre + offset
+   * Normalisasi (SKALA RELATIF - sesuai dokumen):
+   *   PMV_norm = PMV_obs_ref * ( PMV_model / PMV_model_ref )
    *
-   * (PMV_pre_ref dihitung dari baseline NORM_REF)
+   * - Jika input = referensi -> PMV_norm = PMV_obs_ref
+   * - Jika input berubah -> skala mengikuti rasio model terhadap referensi
    */
   const calculatePMVAbran = (
     pmv_iso: number,
@@ -153,48 +146,43 @@ export default function ThermalComfortCalculator() {
     u_jam: number,
     epsilon: number,
     normalize: boolean,
-    pmv_obs_ref: number
+    pmv_obs_ref: number,
+    pmv_model_ref: number
   ): PMVAbranResult => {
-    if ([pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon, pmv_obs_ref].some((n) => Number.isNaN(n))) {
+    if ([pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon, pmv_obs_ref, pmv_model_ref].some((n) => Number.isNaN(n))) {
       throw new Error('Semua input harus berupa angka')
     }
+    if (normalize && pmv_model_ref === 0) {
+      throw new Error('PMV_model_ref tidak boleh 0 (pembagian rasio)')
+    }
 
-    const computePreTotal = (
-      _pmv_iso: number,
-      _v: number,
-      _svf: number,
-      _h_w: number,
-      _veg_func: number,
-      _u_site: number,
-      _u_jam: number,
-      _epsilon: number
-    ) => {
-      const A = _h_w + PARAMS.alphaV * _v
-      const exponent = -PARAMS.k * A
-      const exp_raw = Math.exp(exponent)
-      const exp_used = round3(exp_raw) // 3 desimal seperti bab 4
-      const SVFv = round3(_svf * _v)
+    const A = h_w + PARAMS.alphaV * v
+    const exponent = -PARAMS.k * A
+    const exp_raw = Math.exp(exponent)
+    const exp_used = round3(exp_raw) // 3 desimal seperti contoh perhitungan
+    const SVFv = round3(svf * v)
 
-      const termAlpha = round3(PARAMS.alpha)
-      const termBeta1 = round3(PARAMS.beta1 * _pmv_iso)
-      const termBeta2 = round3(PARAMS.beta2 * exp_used)
-      const termBeta3 = round3(PARAMS.beta3 * SVFv)
-      const termBeta4 = round3(PARAMS.beta4 * _veg_func)
-      const termUSite = round3(_u_site)
-      const termUJam = round3(_u_jam)
-      const termEps = round3(_epsilon)
+    const termAlpha = round3(PARAMS.alpha)
+    const termBeta1 = round3(PARAMS.beta1 * pmv_iso)
+    const termBeta2 = round3(PARAMS.beta2 * exp_used)
+    const termBeta3 = round3(PARAMS.beta3 * SVFv)
+    const termBeta4 = round3(PARAMS.beta4 * veg_func)
+    const termUSite = round3(u_site)
+    const termUJam = round3(u_jam)
+    const termEps = round3(epsilon)
 
-      const preTotal = round3(
-        termAlpha +
-        termBeta1 +
-        termBeta2 +
-        termBeta3 +
-        termBeta4 +
-        termUSite +
-        termUJam +
-        termEps
-      )
+    const preTotal = round3(
+      termAlpha +
+      termBeta1 +
+      termBeta2 +
+      termBeta3 +
+      termBeta4 +
+      termUSite +
+      termUJam +
+      termEps
+    )
 
+    if (!normalize) {
       return {
         A: round3(A),
         exponent: round3(exponent),
@@ -212,30 +200,38 @@ export default function ThermalComfortCalculator() {
           epsilon: termEps,
         },
         preTotal,
+        normalization: null,
+        total: preTotal,
       }
     }
 
-    // Current
-    const cur = computePreTotal(pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon)
-
-    // Baseline for normalization
-    const ref = computePreTotal(
-      NORM_REF.pmv_iso,
-      NORM_REF.v,
-      NORM_REF.svf,
-      NORM_REF.h_w,
-      NORM_REF.veg_func,
-      NORM_REF.u_site,
-      NORM_REF.u_jam,
-      NORM_REF.epsilon
-    )
-
-    const offset = normalize ? round3(pmv_obs_ref - ref.preTotal) : 0
-    const total = round3(cur.preTotal + offset)
+    const scale_raw = preTotal / pmv_model_ref
+    const scale_used = round3(scale_raw) // ditampilkan seperti 2.723 pada dokumen
+    const total = round3(pmv_obs_ref * scale_used)
 
     return {
-      ...cur,
-      normalizationOffset: offset,
+      A: round3(A),
+      exponent: round3(exponent),
+      expfactor_raw: round3(exp_raw),
+      expfactor_used: exp_used,
+      SVFv,
+      terms: {
+        alpha: termAlpha,
+        beta1: termBeta1,
+        beta2: termBeta2,
+        beta3: termBeta3,
+        beta4: termBeta4,
+        u_site: termUSite,
+        u_jam: termUJam,
+        epsilon: termEps,
+      },
+      preTotal,
+      normalization: {
+        pmv_obs_ref: round3(pmv_obs_ref),
+        pmv_model_ref: round3(pmv_model_ref),
+        scale_raw: round3(scale_raw),
+        scale_used,
+      },
       total,
     }
   }
@@ -260,10 +256,11 @@ export default function ThermalComfortCalculator() {
       const u_jam = parseFloat(String(inputs.u_jam))
       const epsilon = parseFloat(String(inputs.epsilon))
       const pmv_obs_ref = parseFloat(String(inputs.pmv_obs_ref))
+      const pmv_model_ref = parseFloat(String(inputs.pmv_model_ref))
 
       const result = calculatePMVAbran(
         pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon,
-        inputs.normalize, pmv_obs_ref
+        inputs.normalize, pmv_obs_ref, pmv_model_ref
       )
 
       setResults(result)
@@ -273,7 +270,6 @@ export default function ThermalComfortCalculator() {
     }
   }
 
-  // ✅ tombol "Muat Nilai Default" (isi contoh + hitung otomatis)
   const handleLoadDefaults = () => {
     setInputs(DEFAULT_VALUES)
     setErrors('')
@@ -289,6 +285,7 @@ export default function ThermalComfortCalculator() {
         Number(DEFAULT_VALUES.epsilon),
         Boolean(DEFAULT_VALUES.normalize),
         Number(DEFAULT_VALUES.pmv_obs_ref),
+        Number(DEFAULT_VALUES.pmv_model_ref),
       )
       setResults(result)
     } catch (error: any) {
@@ -297,10 +294,10 @@ export default function ThermalComfortCalculator() {
     }
   }
 
-  // ✅ Skala Persepsi (agar -1.66 masuk "Sejuk Nyaman")
+  // ✅ Skala Persepsi
   const getPerceptionCategory = (pmv: number): CategoryResult => {
     if (pmv < -2.5) return { label: "Sangat Dingin", range: "< -2.5" }
-    if (pmv < -1.5) return { label: "Sejuk Nyaman", range: "[-2.5, -1.5)" } // ✅ target -1.66 masuk sini
+    if (pmv < -1.5) return { label: "Sejuk Nyaman", range: "[-2.5, -1.5)" }
     if (pmv < -0.5) return { label: "Sejuk", range: "[-1.5, -0.5)" }
     if (pmv < 0.5) return { label: "Netral (Nyaman)", range: "[-0.5, 0.5)" }
     if (pmv < 1.5) return { label: "Hangat", range: "[0.5, 1.5)" }
@@ -313,7 +310,7 @@ export default function ThermalComfortCalculator() {
     return getPerceptionCategory(Number(results.total))
   }, [results])
 
-  // Breakdown chart
+  // Breakdown chart (komponen PMV_pre + titik PMV_norm jika normalisasi aktif)
   const breakdownData = useMemo(() => {
     if (!results) return []
 
@@ -328,10 +325,6 @@ export default function ThermalComfortCalculator() {
       { name: 'ε', component: Number(results.terms.epsilon) },
     ]
 
-    if (Number(results.normalizationOffset) !== 0) {
-      terms.push({ name: 'Offset (normalisasi)', component: Number(results.normalizationOffset) })
-    }
-
     let cum = 0
     const data = terms.map((t) => {
       cum = round3(cum + t.component)
@@ -339,10 +332,18 @@ export default function ThermalComfortCalculator() {
     })
 
     data.push({
-      name: 'Total',
+      name: 'Total PMVpesisir',
       component: 0,
-      cumulative: Number(results.total),
+      cumulative: Number(results.preTotal),
     })
+
+    if (results.normalization) {
+      data.push({
+        name: 'PMV_norm',
+        component: 0,
+        cumulative: Number(results.total),
+      })
+    }
 
     return data
   }, [results])
@@ -395,7 +396,7 @@ export default function ThermalComfortCalculator() {
   }
 
   // ===========================
-  // Download Grafik PNG (tanpa html2canvas) -> ambil SVG Recharts
+  // Download Grafik PNG
   // ===========================
   const handleDownloadChartPNG = async () => {
     if (!chartRef.current) return
@@ -433,21 +434,21 @@ export default function ThermalComfortCalculator() {
       const dataUrl = await svgToPngDataUrl(svgText, w, h, 2)
       const a = document.createElement("a")
       a.href = dataUrl
-      a.download = `Grafik-PMVabran-${date}.png`
+      a.download = `Grafik-PMV-${date}.png`
       a.click()
     } catch {
       const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `Grafik-PMVabran-${date}.svg`
+      a.download = `Grafik-PMV-${date}.svg`
       a.click()
       URL.revokeObjectURL(url)
     }
   }
 
   // ===========================
-  // SVG blocks untuk PDF (simbol sesuai gambar)
+  // SVG blocks untuk PDF
   // ===========================
   const SVG_W = 1400
   const svgWrap = (h: number, inner: string) =>
@@ -463,7 +464,7 @@ export default function ThermalComfortCalculator() {
     `<tspan font-size="${size}" baseline-shift="super">${text}</tspan>`
 
   const formulaSvg = () => {
-    const h = 130
+    const h = 160
     const font = "Times New Roman, serif"
     const size = 26
     const subSize = 18
@@ -473,12 +474,13 @@ export default function ThermalComfortCalculator() {
       h,
       svg: svgWrap(h, `
   <text x="${x}" y="55" font-family="${font}" font-size="${size}" fill="#000">
-    PMV${sub("abran", subSize)} = α + β${sub("1", subSize)} PMV${sub("iso", subSize)}(T${sub("a", subSize)}, RH, v, MRT)
-    + β${sub("2", subSize)} e${sup("-k(H/W + α", subSize)}${sup("v", subSize)}${sup("·v)", subSize)}
+    PMV${sub("pre", subSize)} = α + β${sub("1", subSize)} PMV${sub("iso", subSize)} + β${sub("2", subSize)} e${sup("-k(H/W + α", subSize)}${sup("v", subSize)}${sup("·v)", subSize)}
   </text>
   <text x="${x}" y="100" font-family="${font}" font-size="${size}" fill="#000">
-    + β${sub("3", subSize)} (SVF · v) + β${sub("4", subSize)} veg${sub("func", subSize)}
-    + u${sub("site", subSize)} + u${sub("jam", subSize)} + ε
+    + β${sub("3", subSize)} (SVF · v) + β${sub("4", subSize)} veg${sub("func", subSize)} + u${sub("site", subSize)} + u${sub("jam", subSize)} + ε
+  </text>
+  <text x="${x}" y="140" font-family="${font}" font-size="${size}" fill="#000">
+    PMV${sub("norm", subSize)} = PMV${sub("obs", subSize)} × ( PMV${sub("model", subSize)} / PMV${sub("model,ref", subSize)} )
   </text>
       `),
     }
@@ -541,7 +543,7 @@ export default function ThermalComfortCalculator() {
   }
 
   const componentsSvg = (r: PMVAbranResult) => {
-    const h = 430
+    const h = 470
     const font = "Times New Roman, serif"
     const x = 60
     let y = 55
@@ -562,7 +564,6 @@ export default function ThermalComfortCalculator() {
       `u${sub("jam", 18)} = ${Number(r.terms.u_jam).toFixed(3)}`,
       `ε = ${Number(r.terms.epsilon).toFixed(3)}`,
       `PMV${sub("pre", 18)} = ${Number(r.preTotal).toFixed(3)}`,
-      `Offset (normalisasi) = ${Number(r.normalizationOffset).toFixed(3)}`,
     ]
 
     for (const rr of rows) {
@@ -570,17 +571,29 @@ export default function ThermalComfortCalculator() {
       y += line
     }
 
+    if (r.normalization) {
+      y += 8
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="26" font-weight="700" fill="#000">NORMALISASI (SKALA RELATIF)</text>`)
+      y += 34
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="24" fill="#000">PMV_obs_ref = ${Number(r.normalization.pmv_obs_ref).toFixed(3)}</text>`)
+      y += line
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="24" fill="#000">PMV_model_ref = ${Number(r.normalization.pmv_model_ref).toFixed(3)}</text>`)
+      y += line
+      inner.push(`<text x="${x}" y="${y}" font-family="${font}" font-size="24" fill="#000">Skala = PMV_model / PMV_model_ref = ${Number(r.normalization.scale_used).toFixed(3)}</text>`)
+      y += line
+    }
+
     y += 10
     inner.push(
       `<text x="${x}" y="${y}" font-family="${font}" font-size="28" font-weight="700" fill="#000">
-        TOTAL PMV${sub("abran", 20)} = ${Number(r.total).toFixed(3)}
+        TOTAL PMV${sub(r.normalization ? "norm" : "pre", 20)} = ${Number(r.total).toFixed(3)}
       </text>`
     )
 
     return { w: SVG_W, h, svg: svgWrap(h, inner.join("\n")) }
   }
 
-  // ✅ Download PDF (tanpa html2canvas -> tidak akan error "lab")
+  // ✅ Download PDF
   const handleDownloadPDF = async () => {
     if (!results) return
 
@@ -663,17 +676,20 @@ export default function ThermalComfortCalculator() {
     hr()
 
     // RUMUS
-    write("1. Model Persamaan Fisiologis PMVpesisir Adalah Indeks Evaluasi Kontekstual Untuk Kasus Spesifik Permukiman Pesisir Tropis.")
+    write("1. Model Persamaan PMVpesisir dan Normalisasi Skala Relatif PMV_norm.")
     try {
       const f = formulaSvg()
       await addSvgToPdf(f.svg, f.w, f.h)
     } catch {
-      write("PMVabran = alpha + beta1*PMV_iso + beta2*exp(-k*(H/W + alphaV*v)) + beta3*(SVF*v) + beta4*vegfunc + u_site + u_jam + epsilon")
+      write("PMVpesisir = alpha + beta1*PMV_iso + beta2*exp(-k*(H/W + alphaV*v)) + beta3*(SVF*v) + beta4*vegfunc + u_site + u_jam + epsilon")
+      write("PMV_norm = PMV_obs_ref * (PMV_model / PMV_model_ref)")
     }
 
-    if (inputs.normalize) {
-      write(`Normalisasi (kalibrasi baseline): PMV_final = PMV_pre + (PMV_obs_ref - PMV_pre_ref)`)
-      write(`PMV_obs_ref = ${Number(inputs.pmv_obs_ref).toFixed(2)}   (target persepsi)`)
+    if (inputs.normalize && results.normalization) {
+      write(`Normalisasi (skala relatif): PMV_norm = PMV_obs_ref × (PMV_model / PMV_model_ref)`)
+      write(`PMV_obs_ref = ${Number(inputs.pmv_obs_ref).toFixed(2)}   (observasi lapangan)`)
+      write(`PMV_model_ref = ${Number(inputs.pmv_model_ref).toFixed(3)} (model titik referensi)`)
+      write(`Skala (digunakan) = ${Number(results.normalization.scale_used).toFixed(3)}`)
     }
     hr()
 
@@ -690,6 +706,7 @@ export default function ThermalComfortCalculator() {
     writeKV("epsilon", String(inputs.epsilon))
     writeKV("normalisasi", inputs.normalize ? "ON" : "OFF")
     writeKV("PMV_obs_ref", String(inputs.pmv_obs_ref))
+    writeKV("PMV_model_ref", String(inputs.pmv_model_ref))
     hr()
 
     // PARAMETER MODEL
@@ -739,16 +756,18 @@ export default function ThermalComfortCalculator() {
       writeKV("u_site", String(results.terms.u_site))
       writeKV("u_jam", String(results.terms.u_jam))
       writeKV("epsilon", String(results.terms.epsilon))
-      writeKV("PMV_pre", String(results.preTotal))
-      writeKV("offset_norm", String(results.normalizationOffset))
+      writeKV("PMVpesisir", String(results.preTotal))
+      if (results.normalization) {
+        writeKV("scale_used", String(results.normalization.scale_used))
+      }
     }
     hr()
 
     // SKALA PERSEPSI
     if (perception) {
-      write("KATEGORI PMV (SKALA PERSEPSI)", { bold: true, size: 12 })
+      write("KATEGORI PMVpesisir", { bold: true, size: 12 })
       hr()
-      writeKV("PMVabran", `${Number(results.total).toFixed(3)}`)
+      writeKV("PMVpesisir", `${Number(results.total).toFixed(3)}`)
       writeKV("Kategori", `${perception.label} (rentang ${perception.range})`)
       hr()
     }
@@ -758,7 +777,7 @@ export default function ThermalComfortCalculator() {
     doc.setFont("helvetica", "bold")
     doc.setFontSize(13)
     ensureSpace(22)
-    doc.text(`TOTAL PMVabran = ${Number(results.total).toFixed(3)}`, marginX, y)
+    doc.text(`TOTAL PMVpesisir = ${Number(results.total).toFixed(3)}`, marginX, y)
     y += 20
 
     doc.setFont("helvetica", "normal")
@@ -766,7 +785,7 @@ export default function ThermalComfortCalculator() {
     doc.text("© Thermal Comfort Environment", marginX, pageH - 28)
 
     const date = new Date().toISOString().slice(0, 10)
-    doc.save(`Hasil-Analisis-PMVabran-${date}.pdf`)
+    doc.save(`Hasil-Analisis-PMV-${date}.pdf`)
   }
 
   // ✅ Saat pertama kali load/refresh: input 0 semua & hasil kosong
@@ -777,6 +796,12 @@ export default function ThermalComfortCalculator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ✅ Titik label untuk ReferenceDot pada chart
+  const dotX = useMemo(() => {
+    if (!results) return "Total (PMVpesisir)"
+    return results.normalization ? "PMV_norm" : "Total (PMVpesisir)"
+  }, [results])
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-6 py-8">
@@ -786,7 +811,7 @@ export default function ThermalComfortCalculator() {
             <span className="text-blue-900">Thermal Comfort Environment</span>
           </h1>
           <p className="text-slate-600">
-            Model PMVpesisir — Perhitungan Kenyamanan Termal Adaptif (Permukiman Pesisir)
+            Model PMVpesisir + Normalisasi Skala Relatif (PMV_norm)
           </p>
         </div>
 
@@ -795,7 +820,7 @@ export default function ThermalComfortCalculator() {
           <Card className="h-fit">
             <CardHeader className="bg-slate-50 border-b">
               <CardTitle>Input Parameters</CardTitle>
-              <CardDescription>Masukkan nilai parameter perhitungan </CardDescription>
+              <CardDescription>Masukkan nilai parameter perhitungan</CardDescription>
             </CardHeader>
 
             <CardContent className="pt-6 space-y-6">
@@ -822,7 +847,7 @@ export default function ThermalComfortCalculator() {
                   />
                 </div>
 
-                {/* v (label dibiarkan sesuai permintaan kamu) */}
+                {/* v */}
                 <div className="space-y-2">
                   <Label htmlFor="v" className="text-sm font-medium text-slate-700">
                     Alfa (α)
@@ -952,6 +977,57 @@ export default function ThermalComfortCalculator() {
                 </div>
               </div>
 
+              {/* Normalisasi */}
+              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-900">Normalisasi (Skala Relatif)</p>
+
+                  <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={inputs.normalize}
+                      onChange={(e) => setInputs(prev => ({ ...prev, normalize: e.target.checked }))}
+                      className="h-4 w-4"
+                    />
+                    Aktif
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="pmv_obs_ref" className="text-sm font-medium text-slate-700">
+                      PMV ( Observasi Lapangan)
+                    </Label>
+                    <Input
+                      id="pmv_obs_ref"
+                      type="number"
+                      step="0.01"
+                      value={inputs.pmv_obs_ref}
+                      onChange={(e) => handleNumberChange('pmv_obs_ref', e.target.value)}
+                      placeholder="-0.61"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="pmv_model_ref" className="text-sm font-medium text-slate-700">
+                      PMV (Referensi)
+                    </Label>
+                    <Input
+                      id="pmv_model_ref"
+                      type="number"
+                      step="0.001"
+                      value={inputs.pmv_model_ref}
+                      onChange={(e) => handleNumberChange('pmv_model_ref', e.target.value)}
+                      placeholder="1.085"
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600">
+                  Rumus: <span className="font-mono">PMV_norm = PMV_obs_ref × (PMV_model / PMV_model_ref)</span>
+                </p>
+              </div>
+
               {errors && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   {errors}
@@ -987,7 +1063,7 @@ export default function ThermalComfortCalculator() {
                 </div>
 
                 <div className="mt-3 text-xs text-slate-600 border-t border-slate-200 pt-3">
-                  Normalisasi aktif (baseline) → target persepsi: <b>{Number(inputs.pmv_obs_ref).toFixed(2)}</b>
+                  Normalisasi skala relatif: <b>{inputs.normalize ? "ON" : "OFF"}</b>
                 </div>
               </div>
             </CardContent>
@@ -1004,30 +1080,50 @@ export default function ThermalComfortCalculator() {
                 <CardContent className="pt-6">
                   <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
                     <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
-                      PMVabran (Final)
+                      PMVpesisir {results.normalization ? "(PMV_norm)" : "(PMV_pre)"}
                     </p>
                     <p className="text-5xl font-bold text-blue-700">
                       {Number(results.total).toFixed(3)}
                     </p>
                   </div>
 
-                  {inputs.normalize && (
-                    <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
-                      <p className="text-sm font-semibold text-slate-900 mb-1">
-                        Nilai ini dinormalisasi (kalibrasi baseline) terhadap PMV observasi lapangan
-                        {" "}(<span className="font-mono">{Number(inputs.pmv_obs_ref).toFixed(2)}</span>)
-                        {" "}agar mengikuti skala persepsi lokasi (tetap mempertahankan arah perubahan).
-                      </p>
-                    </div>
-                  )}
+                  {results.normalization && (
+  <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
+    <p className="text-sm font-semibold text-slate-900 mb-2">
+      Nilai dinormalisasi (skala relatif)
+    </p>
+
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-slate-600">Skala (dipakai)</span>
+      <span className="font-mono font-semibold text-blue-700">
+        {Number(results.normalization.scale_used).toFixed(3)}
+      </span>
+    </div>
+
+    <div className="flex items-center justify-between text-sm mt-1">
+      <span className="text-slate-600">PMV_obs_ref</span>
+      <span className="font-mono font-semibold text-blue-700">
+        {Number(results.normalization.pmv_obs_ref).toFixed(2)}
+      </span>
+    </div>
+
+    <div className="flex items-center justify-between text-sm mt-1">
+      <span className="text-slate-600">PMV_norm</span>
+      <span className="font-mono font-semibold text-blue-700">
+        {Number(results.total).toFixed(3)}
+      </span>
+    </div>
+  </div>
+)}
+
 
                   {perception && (
                     <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
                       <p className="text-sm font-semibold text-slate-900 mb-1">
-                        Kategori PMV (Skala Persepsi)
+                        Kategori PMVpesisir
                       </p>
                       <p className="text-sm text-slate-700">
-                        PMVabran{" "}
+                        PMV{" "}
                         <span className="font-mono font-semibold text-blue-700">{Number(results.total).toFixed(3)}</span>
                         {" "}→{" "}
                         <span className="font-semibold">{perception.label}</span>
@@ -1076,7 +1172,9 @@ export default function ThermalComfortCalculator() {
                     </div>
 
                     <div>
-                      <p className="text-sm font-semibold text-slate-700 mb-3">Komponen Hasil</p>
+                      <p className="text-sm font-semibold text-slate-700 mb-3">
+                        Komponen (PMV_pre)
+                      </p>
                       <div className="space-y-2 text-sm bg-slate-50 p-3 rounded-lg">
                         {[
                           ["α", results.terms.alpha],
@@ -1087,8 +1185,7 @@ export default function ThermalComfortCalculator() {
                           ["u_site", results.terms.u_site],
                           ["u_jam", results.terms.u_jam],
                           ["ε", results.terms.epsilon],
-                          ["PMV_pre", results.preTotal],
-                          ["Offset", results.normalizationOffset],
+                          ["PMV_pre (Total)", results.preTotal],
                         ].map(([k, v], i) => (
                           <div key={i} className="flex justify-between">
                             <span className="text-slate-600">{k}</span>
@@ -1100,7 +1197,7 @@ export default function ThermalComfortCalculator() {
 
                     <div className="mt-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
                       <p className="text-xs text-blue-600 font-semibold tracking-wide mb-2">
-                        TOTAL PMVabran (Final)
+                        TOTAL PMVpesisir {results.normalization ? "(PMV_norm)" : "(PMV_pre)"}
                       </p>
 
                       <p className="text-3xl font-bold text-blue-700">
@@ -1134,7 +1231,7 @@ export default function ThermalComfortCalculator() {
               <CardHeader className="border-b bg-white">
                 <CardTitle className="text-lg">Distribusi PMV</CardTitle>
                 <CardDescription>
-                  Grafik kontribusi tiap komponen terhadap total PMVabran (termasuk offset normalisasi jika aktif).
+                  Batang = komponen PMV_pre, garis = akumulasi PMV_pre. Jika normalisasi aktif, titik PMV_norm ditampilkan sebagai titik terakhir.
                 </CardDescription>
               </CardHeader>
 
@@ -1157,7 +1254,7 @@ export default function ThermalComfortCalculator() {
                         <Tooltip />
                         <Legend />
 
-                        <Bar dataKey="component" name="Nilai Komponen" fill="#16a34a" />
+                        <Bar dataKey="component" name="Nilai Komponen (PMV_pre)" fill="#16a34a" />
 
                         <Line
                           type="monotone"
@@ -1170,14 +1267,16 @@ export default function ThermalComfortCalculator() {
                         />
 
                         <ReferenceDot
-                          x="Total"
-                          y={Number(results.total)}
+                          x={dotX}
+                          y={Number(results.normalization ? results.total : results.preTotal)}
                           r={7}
                           fill="#dc2626"
                           stroke="#dc2626"
                           strokeWidth={2}
                           label={{
-                            value: `Total: ${Number(results.total).toFixed(3)}`,
+                            value: results.normalization
+                              ? `PMV_norm: ${Number(results.total).toFixed(3)}`
+                              : `PMV_pre: ${Number(results.preTotal).toFixed(3)}`,
                             position: 'top',
                             fill: '#dc2626',
                           }}
@@ -1187,7 +1286,7 @@ export default function ThermalComfortCalculator() {
                   </div>
 
                   <p className="text-xs text-slate-500 mt-3">
-                    Batang = kontribusi tiap komponen, garis = akumulasi sampai total PMVabran.
+                    Catatan: PMV_norm adalah hasil normalisasi skala relatif terhadap PMV_obs_ref dan PMV_model_ref.
                   </p>
                 </div>
               </CardContent>
@@ -1210,21 +1309,14 @@ export default function ThermalComfortCalculator() {
                       Thermal Comfort Environment
                     </p>
                     <p className="text-xs text-slate-500">
-                      PMVabran • Adaptive Thermal Comfort
+                      PMV_pre • PMV_norm • Adaptive Thermal Comfort
                     </p>
                   </div>
                 </div>
 
                 <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-                  Aplikasi untuk menghitung PMVabran berdasarkan parameter lingkungan permukiman pesisir,
-                  menampilkan hasil, komponen perhitungan, dan visualisasi grafik.
-                </p>
-
-                <p className="mt-4 text-sm text-slate-600 leading-relaxed border-l-4 border-blue-200 pl-4 italic">
-                  Model PMVabran merupakan model prediktif kenyamanan termal ruang luar pesisir yang
-                  mengintegrasikan respon fisiologis manusia dengan koreksi spasial berbasis morfologi
-                  dan dinamika angin laut, sehingga lebih representatif untuk menjelaskan dan merancang
-                  kenyamanan termal pada permukiman pesisir tropis.
+                  Aplikasi untuk menghitung PMVpesisir berdasarkan parameter lingkungan, lalu (opsional) menormalisasi secara
+                  skala relatif (PMV_norm) terhadap PMVpesisir observasi lapangan.
                 </p>
               </div>
             </div>
