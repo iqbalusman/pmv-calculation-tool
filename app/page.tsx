@@ -659,6 +659,7 @@ export default function ThermalComfortCalculator() {
       doc.addImage(png, "PNG", marginX, y, imgW, imgH)
       y += imgH + 10
     }
+    
 
     const now = new Date()
     const dateStr = now.toLocaleString()
@@ -705,8 +706,8 @@ export default function ThermalComfortCalculator() {
     writeKV("u_jam", String(inputs.u_jam))
     writeKV("epsilon", String(inputs.epsilon))
     writeKV("normalisasi", inputs.normalize ? "ON" : "OFF")
-    writeKV("PMV_obs_ref", String(inputs.pmv_obs_ref))
-    writeKV("PMV_model_ref", String(inputs.pmv_model_ref))
+    writeKV("PMV ObserfaLapangansi ", String(inputs.pmv_obs_ref))
+    writeKV("PMV Referensi", String(inputs.pmv_model_ref))
     hr()
 
     // PARAMETER MODEL
@@ -826,29 +827,8 @@ export default function ThermalComfortCalculator() {
             <CardContent className="pt-6 space-y-6">
               {/* PMV ISO + v */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                {/* PMV ISO */}
-                <div className="space-y-2">
-                  <Label htmlFor="pmv_iso" className="text-sm font-medium text-slate-700">
-                    <span className="inline-flex items-baseline gap-0">
-                      <span>PMV</span>
-                      <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
-                        iso
-                      </sub>
-                    </span>
-                  </Label>
-
-                  <Input
-                    id="pmv_iso"
-                    type="number"
-                    step="0.01"
-                    value={inputs.pmv_iso}
-                    onChange={(e) => handleNumberChange('pmv_iso', e.target.value)}
-                    placeholder="0.60"
-                  />
-                </div>
-
-                {/* v */}
-                <div className="space-y-2">
+               {/* v */}
+               <div className="space-y-2">
                   <Label htmlFor="v" className="text-sm font-medium text-slate-700">
                     Alfa (α)
                   </Label>
@@ -861,13 +841,36 @@ export default function ThermalComfortCalculator() {
                     placeholder="3.2"
                   />
                 </div>
+                {/* PMV ISO */}
+                  <div className="space-y-2">
+                    <Label htmlFor="pmv_iso" className="text-sm font-medium text-slate-700">
+                      <span className="inline-flex items-baseline gap-1">
+                        <span>(β₁)</span>
+                        <span className="inline-flex items-baseline gap-0">
+                          <span>PMV</span>
+                          <sub className="m-0 p-0 leading-none align-baseline text-[0.75em] relative top-[0.15em]">
+                            iso
+                          </sub>
+                        </span>
+                      </span>
+                    </Label>
+
+                    <Input
+                      id="pmv_iso"
+                      type="number"
+                      step="0.01"
+                      value={inputs.pmv_iso}
+                      onChange={(e) => handleNumberChange('pmv_iso', e.target.value)}
+                      placeholder="0.60"
+                    />
+                  </div>
               </div>
 
               {/* Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="svf" className="text-sm font-medium text-slate-700">
-                    Sky View Factor (SVF)
+                  (β₃)Sky View Factor (SVF) 
                   </Label>
                   <Input
                     id="svf"
@@ -881,7 +884,7 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-2">
                   <Label htmlFor="h_w" className="text-sm font-medium text-slate-700">
-                    Rasio H/W
+                  (β₂) Rasio H/W 
                   </Label>
                   <Input
                     id="h_w"
@@ -895,13 +898,13 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="veg_func" className="text-sm font-medium text-slate-700">
-                    <span>Vegetasi Function </span>
+                    <span>(β₄)Vegetasi Function </span>
                     <span className="inline-flex items-baseline gap-0">
                       <span>(</span>
                       <span className="italic">
                         veg
                         <sub className="m-0 p-0 leading-none text-[0.75em] italic">
-                          func
+                          func 
                         </sub>
                       </span>
                       <span>)</span>
@@ -1008,7 +1011,7 @@ export default function ThermalComfortCalculator() {
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  {/*<div className="space-y-2">
                     <Label htmlFor="pmv_model_ref" className="text-sm font-medium text-slate-700">
                       PMV (Referensi)
                     </Label>
@@ -1020,12 +1023,12 @@ export default function ThermalComfortCalculator() {
                       onChange={(e) => handleNumberChange('pmv_model_ref', e.target.value)}
                       placeholder="1.085"
                     />
-                  </div>
+                  </div>*/}
                 </div>
 
-                <p className="text-xs text-slate-600">
+                {/*<p className="text-xs text-slate-600">
                   Rumus: <span className="font-mono">PMV_norm = PMV_obs_ref × (PMV_model / PMV_model_ref)</span>
-                </p>
+                </p>*/}
               </div>
 
               {errors && (
@@ -1080,7 +1083,7 @@ export default function ThermalComfortCalculator() {
                 <CardContent className="pt-6">
                   <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
                     <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
-                      PMVpesisir {results.normalization ? "(PMV_norm)" : "(PMV_pre)"}
+                      PMVpesisir {results.normalization ? "" : "(PMV_pre)"}
                     </p>
                     <p className="text-5xl font-bold text-blue-700">
                       {Number(results.total).toFixed(3)}
@@ -1094,21 +1097,21 @@ export default function ThermalComfortCalculator() {
     </p>
 
     <div className="flex items-center justify-between text-sm">
-      <span className="text-slate-600">Skala (dipakai)</span>
+      <span className="text-slate-600">Skala</span>
       <span className="font-mono font-semibold text-blue-700">
         {Number(results.normalization.scale_used).toFixed(3)}
       </span>
     </div>
 
     <div className="flex items-center justify-between text-sm mt-1">
-      <span className="text-slate-600">PMV_obs_ref</span>
+      <span className="text-slate-600">PMV Observasi Lapangan</span>
       <span className="font-mono font-semibold text-blue-700">
         {Number(results.normalization.pmv_obs_ref).toFixed(2)}
       </span>
     </div>
 
     <div className="flex items-center justify-between text-sm mt-1">
-      <span className="text-slate-600">PMV_norm</span>
+      <span className="text-slate-600">PMVpesisir</span>
       <span className="font-mono font-semibold text-blue-700">
         {Number(results.total).toFixed(3)}
       </span>
@@ -1173,7 +1176,7 @@ export default function ThermalComfortCalculator() {
 
                     <div>
                       <p className="text-sm font-semibold text-slate-700 mb-3">
-                        Komponen (PMV_pre)
+                        Komponen (PMVpesisir)
                       </p>
                       <div className="space-y-2 text-sm bg-slate-50 p-3 rounded-lg">
                         {[
@@ -1185,7 +1188,7 @@ export default function ThermalComfortCalculator() {
                           ["u_site", results.terms.u_site],
                           ["u_jam", results.terms.u_jam],
                           ["ε", results.terms.epsilon],
-                          ["PMV_pre (Total)", results.preTotal],
+                          ["PMVpesisir", results.preTotal],
                         ].map(([k, v], i) => (
                           <div key={i} className="flex justify-between">
                             <span className="text-slate-600">{k}</span>
@@ -1231,7 +1234,7 @@ export default function ThermalComfortCalculator() {
               <CardHeader className="border-b bg-white">
                 <CardTitle className="text-lg">Distribusi PMV</CardTitle>
                 <CardDescription>
-                  Batang = komponen PMV_pre, garis = akumulasi PMV_pre. Jika normalisasi aktif, titik PMV_norm ditampilkan sebagai titik terakhir.
+                  Batang = komponen PMVpesisir, garis = akumulasi PMVpesisir. Jika normalisasi aktif, titik PMV_norm ditampilkan sebagai titik terakhir.
                 </CardDescription>
               </CardHeader>
 
@@ -1254,7 +1257,7 @@ export default function ThermalComfortCalculator() {
                         <Tooltip />
                         <Legend />
 
-                        <Bar dataKey="component" name="Nilai Komponen (PMV_pre)" fill="#16a34a" />
+                        <Bar dataKey="component" name="Nilai Komponen (PMVpesisir)" fill="#16a34a" />
 
                         <Line
                           type="monotone"
@@ -1309,14 +1312,14 @@ export default function ThermalComfortCalculator() {
                       Thermal Comfort Environment
                     </p>
                     <p className="text-xs text-slate-500">
-                      PMV_pre • PMV_norm • Adaptive Thermal Comfort
+                      PMVpesisir• PMV_norm • Adaptive Thermal Comfort
                     </p>
                   </div>
                 </div>
 
                 <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-                  Aplikasi untuk menghitung PMVpesisir berdasarkan parameter lingkungan, lalu (opsional) menormalisasi secara
-                  skala relatif (PMV_norm) terhadap PMVpesisir observasi lapangan.
+                Aplikasi untuk menghitung PMVpesisir berdasarkan parameter lingkungan permukiman pesisir, menampilkan hasil, komponen perhitungan, dan visualisasi grafik. (dp narasi tambahan).....
+                Model PMVpesisir merupakan model prediktif kenyamanan termal ruang luar pesisir yang mengintegrasikan respon fisiologis manusia dengan koreksi spasial berbasis morfologi dan dinamika angin laut, sehingga lebih representatif untuk menjelaskan dan merancang kenyamanan termal pada permukiman pesisir tropis.
                 </p>
               </div>
             </div>
