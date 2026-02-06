@@ -868,6 +868,21 @@ export default function ThermalComfortCalculator() {
 
               {/* Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+              <div className="space-y-2">
+                  <Label htmlFor="h_w" className="text-sm font-medium text-slate-700">
+                  (β₂) Rasio H/W 
+                  </Label>
+                  <Input
+                    id="h_w"
+                    type="number"
+                    step="0.01"
+                    value={inputs.h_w}
+                    onChange={(e) => handleNumberChange('h_w', e.target.value)}
+                    placeholder="0.923"
+                  />
+                </div>
+                
                 <div className="space-y-2">
                   <Label htmlFor="svf" className="text-sm font-medium text-slate-700">
                   (β₃)Sky View Factor (SVF) 
@@ -879,20 +894,6 @@ export default function ThermalComfortCalculator() {
                     value={inputs.svf}
                     onChange={(e) => handleNumberChange('svf', e.target.value)}
                     placeholder="0.55"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="h_w" className="text-sm font-medium text-slate-700">
-                  (β₂) Rasio H/W 
-                  </Label>
-                  <Input
-                    id="h_w"
-                    type="number"
-                    step="0.01"
-                    value={inputs.h_w}
-                    onChange={(e) => handleNumberChange('h_w', e.target.value)}
-                    placeholder="0.923"
                   />
                 </div>
 
