@@ -1383,7 +1383,7 @@ export default function ThermalComfortCalculator() {
                 <CardContent className="pt-8 pb-8">
                   <div className="text-center">
                     <p className="text-slate-500 mb-4">
-                      Masukkan parameter dan klik "Olah / Hitung"
+                      Masukkan parameter dan klik Olah / Hitung
                     </p>
                     <Button onClick={handleLoadDefaults} className="bg-blue-600 hover:bg-blue-700">
                       Muat Nilai Default
