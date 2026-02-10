@@ -25,6 +25,9 @@ import { Label } from '@/components/ui/label'
  * Parsing (koma->titik) dilakukan saat tombol "Hitung".
  */
 type Inputs = {
+  // ✅ α dibuat input (bukan konstan di perhitungan)
+  alpha: string
+
   pmv_iso: string
   v: string
 
@@ -132,6 +135,7 @@ function VegFuncMark() {
 
 export default function ThermalComfortCalculator() {
   // Koefisien model (sesuai dokumen)
+  // ✅ alpha tetap ada sebagai default referensi, tapi perhitungan memakai input alpha dari user.
   const PARAMS = {
     alpha: 0.225,
     beta1: 0.0774,
@@ -144,6 +148,7 @@ export default function ThermalComfortCalculator() {
 
   // ✅ Default pakai string
   const DEFAULT_VALUES: Inputs = {
+    alpha: "0.225",
     pmv_iso: "0.60",
     v: "3.2",
     svf: "0.55",
@@ -168,6 +173,7 @@ export default function ThermalComfortCalculator() {
   }
 
   const INITIAL_VALUES: Inputs = {
+    alpha: "0.225",
     pmv_iso: "",
     v: "",
     svf: "",
@@ -358,8 +364,12 @@ export default function ThermalComfortCalculator() {
    * - komponen β2 = TRUNC3(β2 * exp_used)
    * Normalisasi:
    * PMV_norm = PMV_pre × (PMV_obs_ref / PMV_model_ref)
+   *
+   * ✅ Perbaikan:
+   * - α (alpha) tidak lagi konstan dalam perhitungan, diambil dari input user.
    */
   const calculatePMVAbran = (
+    alpha_input: number,
     pmv_iso: number,
     v: number,
     svf: number,
@@ -372,8 +382,8 @@ export default function ThermalComfortCalculator() {
     pmv_obs_ref: number,
     pmv_model_ref: number
   ): PMVAbranResult => {
-    if ([pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon, pmv_obs_ref, pmv_model_ref].some((n) => Number.isNaN(n))) {
-      throw new Error('Input PMVpesisir/Normalisasi harus angka semua (SVF, H/W, VEGfunc, dst)')
+    if ([alpha_input, pmv_iso, v, svf, h_w, veg_func, u_site, u_jam, epsilon, pmv_obs_ref, pmv_model_ref].some((n) => Number.isNaN(n))) {
+      throw new Error('Input PMVpesisir/Normalisasi harus angka semua (α, SVF, H/W, VEGfunc, dst)')
     }
     if (normalize && pmv_model_ref === 0) {
       throw new Error('PMV_model_ref tidak boleh 0')
@@ -387,11 +397,9 @@ export default function ThermalComfortCalculator() {
 
     const SVFv = round3(svf * v)
 
-    const termAlpha = round3(PARAMS.alpha)
+    const termAlpha = round3(alpha_input)
     const termBeta1 = round3(PARAMS.beta1 * pmv_iso)
-
     const termBeta2 = trunc3(PARAMS.beta2 * exp_used)
-
     const termBeta3 = round3(PARAMS.beta3 * SVFv)
     const termBeta4 = round3(PARAMS.beta4 * veg_func)
     const termUSite = round3(u_site)
@@ -482,6 +490,7 @@ export default function ThermalComfortCalculator() {
     }
 
     try {
+      const alpha_input = mustNumber(inputs.alpha, "Alfa (α)")
       const v = mustNumber(ashrae55.v_air, "v")
       const svf = mustNumber(inputs.svf, "SVF")
       const h_w = mustNumber(inputs.h_w, "H/W")
@@ -495,6 +504,7 @@ export default function ThermalComfortCalculator() {
       const pmv_model_ref = mustNumber(inputs.pmv_model_ref, "PMV_model_ref")
 
       const result = calculatePMVAbran(
+        alpha_input,
         iso.pmv,
         v,
         svf,
@@ -525,6 +535,7 @@ export default function ThermalComfortCalculator() {
       setInputs(prev => ({ ...prev, pmv_iso: iso.pmv.toFixed(2) }))
 
       const result = calculatePMVAbran(
+        mustNumber(DEFAULT_VALUES.alpha, "Alfa (α)"),
         iso.pmv,
         mustNumber(ASHRAE_DEFAULT_VALUES.v_air, "v"),
         mustNumber(DEFAULT_VALUES.svf, "SVF"),
@@ -573,7 +584,7 @@ export default function ThermalComfortCalculator() {
     const veg0 = toNumOrZero(inputs.veg_func).toFixed(0)
 
     const line1 = [
-      `PMV_pesisir = ${PARAMS.alpha.toFixed(3)}`,
+      `PMV_pesisir = ${Number(results.terms.alpha).toFixed(3)}`,
       `+ ${PARAMS.beta1.toFixed(4)} (${pmvIso2})`,
       `+ ${PARAMS.beta2.toFixed(3)} (${exp3})`,
       `− ${Math.abs(PARAMS.beta3).toFixed(3)} (${svf2})`,
@@ -841,7 +852,7 @@ export default function ThermalComfortCalculator() {
 
     write("INPUT PMVpesisir + Normalisasi", { bold: true, size: 12 })
     hr()
-    writeKV("α (intersep)", String(PARAMS.alpha))
+    writeKV("α (intersep)", String(inputs.alpha))
     writeKV("SVF", String(inputs.svf))
     writeKV("H/W", String(inputs.h_w))
     writeKV("VEGfunc", String(inputs.veg_func))
@@ -887,6 +898,12 @@ export default function ThermalComfortCalculator() {
     if (!results) return "Total PMV_pre"
     return results.normalization ? "PMV_norm" : "Total PMV_pre"
   }, [results])
+
+  // ✅ dipakai untuk menampilkan PMV ISO di kotak β1 (tanpa mengubah tampilan lain)
+  const pmvIsoDisplay = useMemo(() => {
+    if (pmvIsoResult) return pmvIsoResult.pmv.toFixed(2)
+    return (inputs.pmv_iso ?? "").trim() !== "" ? Number(toNumOrZero(inputs.pmv_iso)).toFixed(2) : "—"
+  }, [pmvIsoResult, inputs.pmv_iso])
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -1018,8 +1035,9 @@ export default function ThermalComfortCalculator() {
                     id="alpha_const"
                     type="text"
                     inputMode="decimal"
-                    value={String(PARAMS.alpha)}
-                    readOnly
+                    value={inputs.alpha}
+                    onChange={(e) => handleNumberChange('alpha', e.target.value)}
+                    placeholder="0,225"
                   />
                 </div>
 
@@ -1027,20 +1045,20 @@ export default function ThermalComfortCalculator() {
                   <Label htmlFor="beta1_pmv" className="text-sm font-medium text-slate-700">
                     β₁·PMVᵢₛₒ
                   </Label>
-                  <Input
-                    id="beta1_pmv"
-                    type="text"
-                    inputMode="decimal"
-                    value={results ? Number(results.terms.beta1).toFixed(3) : "—"}
-                    readOnly
-                    placeholder="—"
-                  />
+                    <Input
+                      id="beta1_pmv"
+                      type="text"
+                      inputMode="decimal"
+                      value={pmvIsoDisplay}
+                      readOnly
+                      placeholder="—"
+                    />
                 </div>
               </div>
 
               {/* Panel transparansi komponen eksponensial (disembunyikan tapi tetap jalan) */}
               {results && (
-  <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
+  <div className="hidden rounded-lg border border-slate-200 bg-white p-4 space-y-2">
     <p className="text-sm font-semibold text-slate-900">Komponen Eksponensial</p>
 
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1067,6 +1085,9 @@ export default function ThermalComfortCalculator() {
     </p>
   </div>
 )}
+
+
+
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1155,57 +1176,56 @@ export default function ThermalComfortCalculator() {
 
               {/* Normalisasi */}
               {false && (
-  <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-    <div className="flex items-center justify-between">
-      <p className="text-sm font-semibold text-slate-900">Normalisasi (Kalibrasi ke Observasi)</p>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-900">Normalisasi (Kalibrasi ke Observasi)</p>
 
-      <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
-        <input
-          type="checkbox"
-          checked={inputs.normalize}
-          onChange={(e) => setInputs(prev => ({ ...prev, normalize: e.target.checked }))}
-          className="h-4 w-4"
-        />
-        Aktif
-      </label>
-    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={inputs.normalize}
+                        onChange={(e) => setInputs(prev => ({ ...prev, normalize: e.target.checked }))}
+                        className="h-4 w-4"
+                      />
+                      Aktif
+                    </label>
+                  </div>
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div className="space-y-2">
-        <Label htmlFor="pmv_obs_ref" className="text-sm font-medium text-slate-700">
-          Observasi Lapangan (PMV_obs_ref)
-        </Label>
-        <Input
-          id="pmv_obs_ref"
-          type="text"
-          inputMode="decimal"
-          value={inputs.pmv_obs_ref}
-          onChange={(e) => handleNumberChange('pmv_obs_ref', e.target.value)}
-          placeholder="-0,61"
-        />
-      </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="pmv_obs_ref" className="text-sm font-medium text-slate-700">
+                        Observasi Lapangan (PMV_obs_ref)
+                      </Label>
+                      <Input
+                        id="pmv_obs_ref"
+                        type="text"
+                        inputMode="decimal"
+                        value={inputs.pmv_obs_ref}
+                        onChange={(e) => handleNumberChange('pmv_obs_ref', e.target.value)}
+                        placeholder="-0,61"
+                      />
+                    </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="pmv_model_ref" className="text-sm font-medium text-slate-700">
-          Model Referensi (PMV_model_ref)
-        </Label>
-        <Input
-          id="pmv_model_ref"
-          type="text"
-          inputMode="decimal"
-          value={inputs.pmv_model_ref}
-          onChange={(e) => handleNumberChange('pmv_model_ref', e.target.value)}
-          placeholder="1,085"
-        />
-      </div>
-    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="pmv_model_ref" className="text-sm font-medium text-slate-700">
+                        Model Referensi (PMV_model_ref)
+                      </Label>
+                      <Input
+                        id="pmv_model_ref"
+                        type="text"
+                        inputMode="decimal"
+                        value={inputs.pmv_model_ref}
+                        onChange={(e) => handleNumberChange('pmv_model_ref', e.target.value)}
+                        placeholder="1,085"
+                      />
+                    </div>
+                  </div>
 
-    <p className="text-[11px] text-slate-500">
-      Rumus: PMV_norm = PMV_pre × (PMV_obs_ref / PMV_model_ref)
-    </p>
-  </div>
-)}
-
+                  <p className="text-[11px] text-slate-500">
+                    Rumus: PMV_norm = PMV_pre × (PMV_obs_ref / PMV_model_ref)
+                  </p>
+                </div>
+              )}
 
               {errors && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -1228,7 +1248,7 @@ export default function ThermalComfortCalculator() {
 
                 <div className="space-y-1 text-sm text-slate-800">
                   {[
-                    { no: "1.", left: "α (intersep)", right: PARAMS.alpha },
+                    { no: "1.", left: "α (intersep)", right: inputs.alpha },
                     { no: "2.", left: "β₁", right: PARAMS.beta1 },
                     { no: "3.", left: "β₂", right: PARAMS.beta2 },
                     { no: "4.", left: "β₃", right: PARAMS.beta3 },
@@ -1286,16 +1306,18 @@ export default function ThermalComfortCalculator() {
                   {/* Tahap 2/3: PMVpesisir */}
                   {results ? (
                     <>
-                     <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
-  <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
-    PMVpesisir (PMV_pre)
-  </p>
+                      <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
+                        <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
+                          PMVpesisir (PMV_pre)
+                        </p>
 
-  <p className="text-5xl font-bold text-blue-700">
-    {Number(results.preTotal).toFixed(3)}
-  </p>
-</div>
-
+                        <p className="text-5xl font-bold text-blue-700">
+                          {Number(results.preTotal).toFixed(3)}
+                        </p>
+                        <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
+                        PMVpesisir (Hasil Persamaan/Model)
+                        </p>
+                      </div>
 
                       {docStepLines && (
                         <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
@@ -1309,55 +1331,53 @@ export default function ThermalComfortCalculator() {
                         </div>
                       )}
 
-{results.normalization && (
-  <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
-    <p className="text-sm font-semibold text-slate-900 mb-2">
-      Normalisasi (Kalibrasi)
-    </p>
+                      {results.normalization && (
+                        <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
+                          <p className="text-sm font-semibold text-slate-900 mb-2">
+                            Normalisasi (Kalibrasi)
+                          </p>
 
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-slate-600">PMVpesisir (Hasil Persamaan/Model)</span>
-      <span className="font-mono font-semibold text-blue-700">
-        = {Number(results.preTotal).toFixed(3)}
-      </span>
-    </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">PMVpesisir (Hasil Persamaan/Model)</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              = {Number(results.preTotal).toFixed(3)}
+                            </span>
+                          </div>
 
-    <div className="flex items-center justify-between text-sm mt-1">
-      <span className="text-slate-600">PMVpesisir (Normalisasi)</span>
-      <span className="font-mono font-semibold text-blue-700">
-        = {Number(results.normalization.pmv_obs_ref).toFixed(2)}
-      </span>
-    </div>
+                          <div className="flex items-center justify-between text-sm mt-1">
+                            <span className="text-slate-600">PMVpesisir (Normalisasi)</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              = {Number(results.normalization.pmv_obs_ref).toFixed(2)}
+                            </span>
+                          </div>
 
-    <div className="flex items-center justify-between text-sm mt-1">
-      <span className="text-slate-600">PMVpesisir</span>
-      <span className="font-mono font-semibold text-blue-700">
-        = {Number(results.total).toFixed(3)}
-      </span>
-    </div>
-  </div>
-)}
+                          <div className="flex items-center justify-between text-sm mt-1">
+                            <span className="text-slate-600">PMVpesisir</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              = {Number(results.total).toFixed(3)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
 
+                      {perception && (
+                        <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
+                          <p className="text-sm font-semibold text-slate-900 mb-2">
+                            Kategori PMVpesisir
+                          </p>
 
+                          <div className="flex flex-col gap-1">
+                            <span className="text-4xl font-bold font-mono text-blue-700 leading-none">
+                              {Number(results.total).toFixed(3)}
+                            </span>
 
-{perception && (
-  <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-white">
-    <p className="text-sm font-semibold text-slate-900 mb-2">
-      Kategori PMVpesisir
-    </p>
-
-    <div className="flex flex-col gap-1">
-      <span className="text-4xl font-bold font-mono text-blue-700 leading-none">
-        {Number(results.total).toFixed(3)}
-      </span>
-
-      <p className="text-sm text-slate-700">
-        <span className="font-semibold">{perception.label}</span>{" "}
-        <span className="text-slate-500">({perception.range})</span>
-      </p>
-    </div>
-  </div>
-)}
+                            <p className="text-sm text-slate-700">
+                              <span className="font-semibold">{perception.label}</span>{" "}
+                              <span className="text-slate-500">({perception.range})</span>
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                         <Button onClick={handleDownloadPDF} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
@@ -1486,7 +1506,8 @@ export default function ThermalComfortCalculator() {
                 </div>
 
                 <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-                  Aplikasi untuk menghitung PMV ISO dan PMVpesisir (model + normalisasi kalibrasi).
+                  Aplikasi untuk menghitung PMV ISO dan PMVpesisir (model + normalisasi kalibrasi).PMVpesisir diposisikan sebagai indikator kenyamanan termal relatif berbasis konteks lokal, yang dinormalisasi terhadap nilai observasi lapangan (−0,61) sebagai baseline kenyamanan adaptif penghuni. Indeks ini digunakan untuk membaca arah dan variasi spasial kenyamanan termal akibat kondisi mikroklimat permukiman pesisir, tanpa dimaksudkan sebagai nilai kenyamanan absolut.
+
                 </p>
               </div>
             </div>
