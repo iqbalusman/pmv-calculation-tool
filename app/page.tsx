@@ -1308,7 +1308,7 @@ export default function ThermalComfortCalculator() {
                     <>
                       <div className="mb-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
                         <p className="text-xs text-blue-600 tracking-wide font-semibold mb-2">
-                          PMVpesisir (PMV_pre)
+                          PMVpesisir 
                         </p>
 
                         <p className="text-5xl font-bold text-blue-700">
